@@ -100,6 +100,9 @@ jobs:
             - macOS: `.dmg`（Apple Silicon / Intel）
             - Linux: `.AppImage` または `.deb`
 
+            > **macOS 版は実機未検証**です。ビルドは生成していますが、作者が macOS 実機を
+            > 持たないため動作確認ができていません。利用は自己責任でお願いします。
+            >
             > 現在インストーラは**未署名**です。初回起動時に Windows SmartScreen や
             > macOS Gatekeeper の警告が出る場合があります（Windows: 「詳細情報」→「実行」、
             > macOS: 右クリック→「開く」で起動できます）。

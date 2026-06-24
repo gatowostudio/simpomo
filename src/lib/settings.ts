@@ -4,9 +4,13 @@
 // src-tauri/src/layout.rs（SizePreset/Corner）の手書きミラー。Rust 側のフィールド名・serde rename
 // （camelCase / lowercase）・enum の variant を変えたら本ファイルも必ず同期すること。
 // ドリフトは Rust 側テスト（settings.rs: json_round_trips / missing_fields_*、layout.rs: *_deserializes_*）が
-// 部分的に検出する。型生成（tauri-specta 等）は未導入で手動同期。#6 で sound 設定が増える。
+// 部分的に検出する。型生成（tauri-specta 等）は未導入で手動同期。
+// ※ SoundId は TS 側の正本を sounds.ts とし、ここは re-export しているだけ（音の追加手順は sounds.ts 参照）。
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { SoundId } from "./sounds";
+
+export type { SoundId };
 
 /** 設定ウィンドウのラベル。Rust(open_settings) と main.ts の出し分けで一致させる文字列契約。 */
 export const SETTINGS_WINDOW_LABEL = "settings";
@@ -40,6 +44,11 @@ export interface AppSettings {
   cyclesCount: number;
   size: SizePreset;
   corner: Corner;
+  workEndSound: SoundId;
+  breakEndSound: SoundId;
+  sessionEndSound: SoundId;
+  /** 通知音の音量（0〜100）。 */
+  volume: number;
 }
 
 export const getSettings = (): Promise<AppSettings> => invoke("get_settings");
@@ -73,9 +82,24 @@ const CORNER_LABELS: Record<Corner, string> = {
   bottomLeft: "左下",
 };
 
+const SOUND_LABELS: Record<SoundId, string> = {
+  none: "なし",
+  beep: "ビープ",
+  chime: "チャイム",
+  ding: "ディン",
+  blip: "ブリップ",
+  fanfare: "ファンファーレ",
+};
+
+/** 音量の上限（Rust settings.rs MAX_VOLUME と対応）。 */
+export const MAX_VOLUME = 100;
+
 export const SIZE_OPTIONS = (Object.keys(SIZE_LABELS) as SizePreset[]).map(
   (value) => ({ value, label: SIZE_LABELS[value] }),
 );
 export const CORNER_OPTIONS = (Object.keys(CORNER_LABELS) as Corner[]).map(
   (value) => ({ value, label: CORNER_LABELS[value] }),
+);
+export const SOUND_OPTIONS = (Object.keys(SOUND_LABELS) as SoundId[]).map(
+  (value) => ({ value, label: SOUND_LABELS[value] }),
 );

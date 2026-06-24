@@ -230,6 +230,7 @@ impl Timer {
 
     /// 現在フェーズを即座に終了して次へ進める。稼働状態（Running/Paused）は維持する。
     /// Idle のときは何もしない。跨いだフェーズ境界の `TimerEvent` を返す。
+    #[must_use = "skip が返すイベントを emit するか、明示的に破棄(let _ =)すること"]
     pub fn skip(&mut self) -> Vec<TimerEvent> {
         if self.status == Status::Idle {
             return Vec::new();

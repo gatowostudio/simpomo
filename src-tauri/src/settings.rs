@@ -21,6 +21,21 @@ pub const MIN_PHASE_SECS: u32 = 60;
 pub const MAX_PHASE_SECS: u32 = 180 * 60;
 /// サイクル数の上限。
 pub const MAX_CYCLES: u32 = 99;
+/// 音量の上限（0〜100）。
+pub const MAX_VOLUME: u8 = 100;
+
+/// 通知音プリセット。再生はフロント（src/lib/sounds.ts、Web Audio 合成）が行い、Rust は識別子を持つだけ。
+/// フロントの SoundId 型と serde lowercase で対応する手書きミラー。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SoundId {
+    None,
+    Beep,
+    Chime,
+    Ding,
+    Blip,
+    Fanfare,
+}
 
 /// 永続化するアプリ設定。フロント（src/lib/settings.ts）の手書きミラーと camelCase で対応する。
 ///
@@ -40,6 +55,14 @@ pub struct AppSettings {
     pub cycles_count: u32,
     pub size: SizePreset,
     pub corner: Corner,
+    /// 作業フェーズ終了時の通知音。
+    pub work_end_sound: SoundId,
+    /// 休憩フェーズ終了時の通知音。
+    pub break_end_sound: SoundId,
+    /// セッション完走（N セット完了）時の通知音。
+    pub session_end_sound: SoundId,
+    /// 通知音の音量（0〜100）。
+    pub volume: u8,
 }
 
 impl Default for AppSettings {
@@ -52,6 +75,10 @@ impl Default for AppSettings {
             cycles_count: 0,
             size: SizePreset::Medium,
             corner: Corner::TopRight,
+            work_end_sound: SoundId::Chime,
+            break_end_sound: SoundId::Ding,
+            session_end_sound: SoundId::Fanfare,
+            volume: 70,
         }
     }
 }
@@ -63,15 +90,15 @@ impl AppSettings {
         Self {
             work_secs: self.work_secs.clamp(MIN_PHASE_SECS, MAX_PHASE_SECS),
             break_secs: self.break_secs.clamp(MIN_PHASE_SECS, MAX_PHASE_SECS),
-            cycles_infinite: self.cycles_infinite,
             // 無限のときは回数を 0 に正規化し、無意味な値を永続化しない。
             cycles_count: if self.cycles_infinite {
                 0
             } else {
                 self.cycles_count.min(MAX_CYCLES)
             },
-            size: self.size,
-            corner: self.corner,
+            volume: self.volume.min(MAX_VOLUME),
+            // 残り（cycles_infinite / size / corner / 各 sound）は素通し。
+            ..self
         }
     }
 
@@ -154,12 +181,14 @@ mod tests {
             break_secs: 999_999,
             cycles_infinite: true,
             cycles_count: 50,
+            volume: 250,
             ..Default::default()
         }
         .sanitized();
         assert_eq!(s.work_secs, MIN_PHASE_SECS);
         assert_eq!(s.break_secs, MAX_PHASE_SECS);
         assert_eq!(s.cycles_count, 0); // 無限のとき 0 に正規化
+        assert_eq!(s.volume, MAX_VOLUME); // 音量は 100 にクランプ
     }
 
     #[test]
@@ -193,6 +222,10 @@ mod tests {
             cycles_count: 0,
             size: SizePreset::Large,
             corner: Corner::BottomLeft,
+            work_end_sound: SoundId::Beep,
+            break_end_sound: SoundId::None,
+            session_end_sound: SoundId::Fanfare,
+            volume: 55,
         };
         let json = serde_json::to_string(&s).unwrap();
         for key in [
@@ -202,10 +235,15 @@ mod tests {
             "cyclesCount",
             "size",
             "corner",
+            "workEndSound",
+            "breakEndSound",
+            "sessionEndSound",
+            "volume",
         ] {
             assert!(json.contains(&format!("\"{key}\"")), "missing key: {key}");
         }
         assert!(json.contains("\"bottomLeft\""));
+        assert!(json.contains("\"beep\"")); // SoundId は lowercase
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }

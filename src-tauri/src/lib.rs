@@ -38,14 +38,16 @@ const EVENT_SETTINGS: &str = "settings://changed";
 const MAIN_LABEL: &str = "main";
 const SETTINGS_LABEL: &str = "settings";
 
+// snapshot / フェーズ境界イベントはメインウィンドウだけが消費する（通知音もメインのみ）。
+// 設定ウィンドウへ配らないことで、将来リスナを共通化しても二重再生が起きない。
 fn emit_snapshot(app: &AppHandle, snapshot: TimerSnapshot) {
     // 送信失敗（ウィンドウ破棄直後など）は致命ではないので握りつぶす。
-    let _ = app.emit(EVENT_SNAPSHOT, snapshot);
+    let _ = app.emit_to(MAIN_LABEL, EVENT_SNAPSHOT, snapshot);
 }
 
 fn emit_events(app: &AppHandle, events: &[TimerEvent]) {
     if !events.is_empty() {
-        let _ = app.emit(EVENT_TIMER_EVENTS, events);
+        let _ = app.emit_to(MAIN_LABEL, EVENT_TIMER_EVENTS, events);
     }
 }
 
@@ -92,8 +94,9 @@ fn timer_reset(app: AppHandle, state: State<'_, SharedState>) {
 fn timer_skip(app: AppHandle, state: State<'_, SharedState>) {
     {
         let mut timer = state.timer.lock().unwrap();
-        let events = timer.skip();
-        emit_events(&app, &events);
+        // 手動 skip はフェーズ境界イベントを出さない（自分で送ったのに通知音が鳴る違和感を避ける、殿の判断）。
+        // 状態変化は snapshot で反映する。時間切れの遷移（tick）だけが通知音を鳴らす。
+        let _ = timer.skip();
         emit_snapshot(&app, timer.snapshot());
     }
     state.wake.notify_all();

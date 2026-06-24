@@ -2,9 +2,19 @@
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as timer from "./lib/timer";
-  import { openSettings, SECS_PER_MINUTE } from "./lib/settings";
+  import {
+    openSettings,
+    getSettings,
+    onSettingsChanged,
+    SECS_PER_MINUTE,
+  } from "./lib/settings";
+  import { playSound, soundsForEvents, type SoundId } from "./lib/sounds";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
+  let workEndSound = $state<SoundId>("chime");
+  let breakEndSound = $state<SoundId>("ding");
+  let sessionEndSound = $state<SoundId>("fanfare");
+  let volume = $state(70);
   // 既定 ON は tauri.conf.json の alwaysOnTop: true と一致させている（spec の中核体験）。
   // 位置/サイズ等の本格的なウィンドウ挙動は #4 で扱う。
   let alwaysOnTop = $state(true);
@@ -31,21 +41,51 @@
   }
 
   onMount(() => {
-    let unlisten: (() => void) | undefined;
-    // disposed: onSnapshot の Promise が解決する前に unmount された場合に listener を取りこぼさない。
+    const unlisteners: Array<() => void> = [];
+    // disposed: listen の Promise が解決する前に unmount された場合に listener を取りこぼさない。
     let disposed = false;
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => (disposed ? u() : unlisteners.push(u)));
+    };
+
     // 先に listener を張ってから初期 snapshot を取得し、初期化中の更新を取りこぼさない。
-    timer.onSnapshot((s) => (snap = s)).then((u) => {
-      if (disposed) u();
-      else unlisten = u;
-    });
-    // 初期値。すでに emit で届いていれば上書きしない。
+    track(timer.onSnapshot((s) => (snap = s)));
     timer.getSnapshot().then((s) => {
       if (snap === null) snap = s;
     });
+
+    // 通知音の選択・音量を読み込み、設定変更（settings://changed）に追従する。
+    const applySoundSettings = (s: {
+      workEndSound: SoundId;
+      breakEndSound: SoundId;
+      sessionEndSound: SoundId;
+      volume: number;
+    }) => {
+      workEndSound = s.workEndSound;
+      breakEndSound = s.breakEndSound;
+      sessionEndSound = s.sessionEndSound;
+      volume = s.volume;
+    };
+    getSettings().then(applySoundSettings).catch(() => {});
+    track(onSettingsChanged(applySoundSettings));
+
+    // フェーズ境界で通知音を鳴らす。完了時は完了音、catch-up（複数境界）は種類ごと 1 回に畳む。
+    // 手動 skip は Rust 側でイベントを出さないので鳴らない。
+    track(
+      timer.onTimerEvents((events) => {
+        for (const id of soundsForEvents(events, {
+          work: workEndSound,
+          break: breakEndSound,
+          session: sessionEndSound,
+        })) {
+          playSound(id, volume / 100);
+        }
+      }),
+    );
+
     return () => {
       disposed = true;
-      unlisten?.();
+      unlisteners.forEach((u) => u());
     };
   });
 

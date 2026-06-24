@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as settings from "./lib/settings";
+  import { playSound, type SoundId } from "./lib/sounds";
 
   // 編集中のフォーム状態。時間は UI では分で扱う（保存時に秒へ変換）。
   let workMin = $state(25);
@@ -9,6 +10,10 @@
   let cyclesCount = $state(0);
   let size = $state<settings.SizePreset>("medium");
   let corner = $state<settings.Corner>("topRight");
+  let workEndSound = $state<SoundId>("chime");
+  let breakEndSound = $state<SoundId>("ding");
+  let sessionEndSound = $state<SoundId>("fanfare");
+  let volume = $state(70);
 
   // ライブ反映（明示保存ではなく変更即適用）。「保存し忘れて閉じる」事故を構造的に無くす。
   // 数値入力の連打を避けるためデバウンスする。状態表示用に save の進行/エラーを持つ。
@@ -34,6 +39,10 @@
       cyclesCount: Math.max(0, Math.floor(num(cyclesCount, 0))),
       size,
       corner,
+      workEndSound,
+      breakEndSound,
+      sessionEndSound,
+      volume: Math.round(num(volume, 70)),
     };
   }
 
@@ -46,6 +55,10 @@
       cyclesCount = s.cyclesCount;
       size = s.size;
       corner = s.corner;
+      workEndSound = s.workEndSound;
+      breakEndSound = s.breakEndSound;
+      sessionEndSound = s.sessionEndSound;
+      volume = s.volume;
       lastApplied = JSON.stringify(buildSettings());
       loaded = true;
     } catch (e) {
@@ -148,7 +161,67 @@
     </select>
   </label>
 
-  <p class="note">通知音の設定は今後追加予定です。</p>
+  <label class="row">
+    <span>作業終了音</span>
+    <span class="sound">
+      <select bind:value={workEndSound}>
+        {#each settings.SOUND_OPTIONS as opt}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+      <button
+        class="preview"
+        title="試聴"
+        aria-label="作業終了音を試聴"
+        onclick={() => playSound(workEndSound, volume / 100)}>▶</button
+      >
+    </span>
+  </label>
+
+  <label class="row">
+    <span>休憩終了音</span>
+    <span class="sound">
+      <select bind:value={breakEndSound}>
+        {#each settings.SOUND_OPTIONS as opt}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+      <button
+        class="preview"
+        title="試聴"
+        aria-label="休憩終了音を試聴"
+        onclick={() => playSound(breakEndSound, volume / 100)}>▶</button
+      >
+    </span>
+  </label>
+
+  <label class="row">
+    <span>完了音（全セット終了）</span>
+    <span class="sound">
+      <select bind:value={sessionEndSound}>
+        {#each settings.SOUND_OPTIONS as opt}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+      <button
+        class="preview"
+        title="試聴"
+        aria-label="完了音を試聴"
+        onclick={() => playSound(sessionEndSound, volume / 100)}>▶</button
+      >
+    </span>
+  </label>
+
+  <label class="row">
+    <span>音量（{volume}）</span>
+    <input
+      type="range"
+      min="0"
+      max={settings.MAX_VOLUME}
+      step="5"
+      bind:value={volume}
+    />
+  </label>
 
   <div class="footer">
     <span class="status" class:error={saveState === "error"}>{statusText}</span>
@@ -190,10 +263,30 @@
   .checkbox input {
     width: auto;
   }
-  .note {
-    font-size: 0.78rem;
-    opacity: 0.55;
-    margin: 0.2rem 0 0;
+  input[type="range"] {
+    width: 7rem;
+  }
+  .sound {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: none;
+  }
+  .sound select {
+    width: 5.5rem;
+  }
+  .preview {
+    font: inherit;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    padding: 0.2rem 0.45rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .preview:hover {
+    background: rgba(255, 255, 255, 0.18);
   }
   .footer {
     display: flex;

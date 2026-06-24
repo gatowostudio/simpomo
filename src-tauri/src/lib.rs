@@ -1,5 +1,7 @@
+pub mod timer;
+
 // 雛形(#1)の疎通確認用コマンド。フロント↔バックエンドの invoke が通ることだけを確認する。
-// 本実装のタイマー用コマンドは #2/#3 で追加し、この greet は置き換える。
+// #3 でタイマー用コマンド/イベントに接続する際に削除する。
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)

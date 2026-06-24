@@ -26,6 +26,7 @@ pub const MAX_VOLUME: u8 = 100;
 
 /// 通知音プリセット。再生はフロント（src/lib/sounds.ts、Web Audio 合成）が行い、Rust は識別子を持つだけ。
 /// フロントの SoundId 型と serde lowercase で対応する手書きミラー。
+/// variant を増やすときは src/lib/sounds.ts 冒頭の同期手順に従う（TS が正本）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SoundId {
@@ -35,6 +36,20 @@ pub enum SoundId {
     Ding,
     Blip,
     Fanfare,
+}
+
+/// フォーカス中に流す BGM プリセット。再生はフロント（src/lib/bgm.ts、Web Audio 合成）が行う。
+/// フロントの BgmId 型と serde lowercase で対応する手書きミラー。
+/// variant を増やすときは src/lib/bgm.ts 冒頭の同期手順に従う（TS が正本）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BgmId {
+    None,
+    White,
+    Pink,
+    Brown,
+    Rain,
+    Campfire,
 }
 
 /// 永続化するアプリ設定。フロント（src/lib/settings.ts）の手書きミラーと camelCase で対応する。
@@ -63,6 +78,10 @@ pub struct AppSettings {
     pub session_end_sound: SoundId,
     /// 通知音の音量（0〜100）。
     pub volume: u8,
+    /// フォーカス中に流す BGM（休憩中は止める）。
+    pub focus_bgm: BgmId,
+    /// BGM の音量（0〜100）。
+    pub bgm_volume: u8,
 }
 
 impl Default for AppSettings {
@@ -79,6 +98,8 @@ impl Default for AppSettings {
             break_end_sound: SoundId::Ding,
             session_end_sound: SoundId::Fanfare,
             volume: 70,
+            focus_bgm: BgmId::None,
+            bgm_volume: 40,
         }
     }
 }
@@ -97,7 +118,8 @@ impl AppSettings {
                 self.cycles_count.min(MAX_CYCLES)
             },
             volume: self.volume.min(MAX_VOLUME),
-            // 残り（cycles_infinite / size / corner / 各 sound）は素通し。
+            bgm_volume: self.bgm_volume.min(MAX_VOLUME),
+            // 残り（cycles_infinite / size / corner / 各 sound / focus_bgm）は素通し。
             ..self
         }
     }
@@ -226,6 +248,8 @@ mod tests {
             break_end_sound: SoundId::None,
             session_end_sound: SoundId::Fanfare,
             volume: 55,
+            focus_bgm: BgmId::Rain,
+            bgm_volume: 35,
         };
         let json = serde_json::to_string(&s).unwrap();
         for key in [
@@ -239,11 +263,14 @@ mod tests {
             "breakEndSound",
             "sessionEndSound",
             "volume",
+            "focusBgm",
+            "bgmVolume",
         ] {
             assert!(json.contains(&format!("\"{key}\"")), "missing key: {key}");
         }
         assert!(json.contains("\"bottomLeft\""));
         assert!(json.contains("\"beep\"")); // SoundId は lowercase
+        assert!(json.contains("\"rain\"")); // BgmId は lowercase
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }

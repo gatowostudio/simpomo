@@ -5,6 +5,7 @@
 // 本ファイル。音を1種増やすときは ① 下の SoundId 型 ② PLAYERS ③ settings.ts の SOUND_LABELS
 // ④ settings.rs の SoundId enum の4箇所を同期する（SOUND_OPTIONS は SOUND_LABELS から自動生成で不要）。
 import type { TimerEvent } from "./timer";
+import { getAudioContext, clamp01, SILENCE } from "./audio";
 
 export type SoundId =
   | "none"
@@ -18,28 +19,17 @@ export type SoundId =
 const PEAK_GAIN = 0.3;
 /** アタック時間（クリックノイズ回避のため瞬間的に立ち上げない）。 */
 const ATTACK_SECS = 0.01;
-/** exponentialRamp は 0 を取れないため、無音とみなす下限値。 */
-const SILENCE = 0.0001;
 /** ノート停止までのマージン。 */
 const TAIL_SECS = 0.02;
 
 /** [周波数Hz, 開始秒(オフセット), 長さ秒] の並び。 */
 type Note = [freq: number, start: number, dur: number];
 
-let ctx: AudioContext | null = null;
-
-function audioContext(): AudioContext {
-  if (!ctx) ctx = new AudioContext();
-  // ユーザー操作前は suspended のことがあるので毎回 resume を試みる（start 後なので通常は許可される）。
-  if (ctx.state === "suspended") void ctx.resume();
-  return ctx;
-}
-
 /** 正弦波 + 簡単なエンベロープでノート列を鳴らす（volume は 0..1）。 */
 function playNotes(notes: Note[], volume: number): void {
-  const ac = audioContext();
+  const ac = getAudioContext();
   const now = ac.currentTime;
-  const peak = PEAK_GAIN * Math.max(0, Math.min(1, volume));
+  const peak = PEAK_GAIN * clamp01(volume);
   if (peak <= 0) return;
   for (const [freq, start, dur] of notes) {
     const osc = ac.createOscillator();

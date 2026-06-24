@@ -6,15 +6,19 @@
     getSettings,
     onSettingsChanged,
     SECS_PER_MINUTE,
+    type AppSettings,
   } from "./lib/settings";
   import { setAlwaysOnTop, hideWindow } from "./lib/window";
   import { playSound, soundsForEvents, type SoundId } from "./lib/sounds";
+  import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
   let workEndSound = $state<SoundId>("chime");
   let breakEndSound = $state<SoundId>("ding");
   let sessionEndSound = $state<SoundId>("fanfare");
   let volume = $state(70);
+  let focusBgm = $state<BgmId>("none");
+  let bgmVolume = $state(40);
   // 既定 ON は tauri.conf.json の alwaysOnTop: true と一致させている（spec の中核体験）。
   // 位置/サイズ等の本格的なウィンドウ挙動は #4 で扱う。
   let alwaysOnTop = $state(true);
@@ -54,17 +58,14 @@
       if (snap === null) snap = s;
     });
 
-    // 通知音の選択・音量を読み込み、設定変更（settings-changed）に追従する。
-    const applySoundSettings = (s: {
-      workEndSound: SoundId;
-      breakEndSound: SoundId;
-      sessionEndSound: SoundId;
-      volume: number;
-    }) => {
+    // 通知音/BGM の選択・音量を読み込み、設定変更（settings-changed）に追従する。
+    const applySoundSettings = (s: AppSettings) => {
       workEndSound = s.workEndSound;
       breakEndSound = s.breakEndSound;
       sessionEndSound = s.sessionEndSound;
       volume = s.volume;
+      focusBgm = s.focusBgm;
+      bgmVolume = s.bgmVolume;
     };
     getSettings().then(applySoundSettings).catch(() => {});
     track(onSettingsChanged(applySoundSettings));
@@ -87,6 +88,15 @@
       disposed = true;
       unlisteners.forEach((u) => u());
     };
+  });
+
+  // フォーカス（作業フェーズ・稼働中）のみ BGM を流す。休憩/一時停止/停止では止める。
+  // focusActive は $derived の真偽値なので、毎秒の snapshot 更新では値が変わらず effect は
+  // 再実行されない（フェーズや BGM 設定が変わった縁でのみ作用する＝edge 駆動）。
+  const focusActive = $derived(snap?.status === "running" && snap?.phase === "work");
+  $effect(() => {
+    if (focusActive && focusBgm !== "none") setBgm(focusBgm, bgmVolume / 100);
+    else stopBgm();
   });
 
   // 状態更新は onSnapshot（emit）の単一経路。コマンドは結果を代入しない。

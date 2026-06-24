@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as settings from "./lib/settings";
   import { hideWindow } from "./lib/window";
   import { playSound, type SoundId } from "./lib/sounds";
+  import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
 
   // 編集中のフォーム状態。時間は UI では分で扱う（保存時に秒へ変換）。
   let workMin = $state(25);
@@ -14,6 +16,9 @@
   let breakEndSound = $state<SoundId>("ding");
   let sessionEndSound = $state<SoundId>("fanfare");
   let volume = $state(70);
+  let focusBgm = $state<BgmId>("none");
+  let bgmVolume = $state(40);
+  let bgmPreviewing = $state(false);
 
   // ライブ反映（明示保存ではなく変更即適用）。「保存し忘れて閉じる」事故を構造的に無くす。
   // 数値入力の連打を避けるためデバウンスする。状態表示用に save の進行/エラーを持つ。
@@ -43,6 +48,8 @@
       breakEndSound,
       sessionEndSound,
       volume: Math.round(num(volume, 70)),
+      focusBgm,
+      bgmVolume: Math.round(num(bgmVolume, 40)),
     };
   }
 
@@ -59,6 +66,8 @@
       breakEndSound = s.breakEndSound;
       sessionEndSound = s.sessionEndSound;
       volume = s.volume;
+      focusBgm = s.focusBgm;
+      bgmVolume = s.bgmVolume;
       lastApplied = JSON.stringify(buildSettings());
       loaded = true;
     } catch (e) {
@@ -89,8 +98,38 @@
     debounceId = setTimeout(() => apply(payload), 350);
   });
 
-  // conf 定義済みウィンドウなので破棄せず隠す（再度開ける）。
+  // BGM の試聴トグル。試聴中は選択/音量の変更に追従する（同一 BGM なら音量のみ更新）。
+  function toggleBgmPreview() {
+    if (bgmPreviewing) {
+      stopBgm();
+      bgmPreviewing = false;
+    } else {
+      bgmPreviewing = true; // $effect が実際の再生を行う
+    }
+  }
+  $effect(() => {
+    if (!bgmPreviewing) return;
+    if (focusBgm === "none") {
+      stopBgm();
+      bgmPreviewing = false;
+      return;
+    }
+    setBgm(focusBgm, bgmVolume / 100);
+  });
+
+  // 設定ウィンドウが非アクティブ（×で隠す/別ウィンドウへ）になったら試聴を止める
+  // （Close ボタン以外の閉じ方でも鳴り続けないように）。
+  getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    if (!focused && bgmPreviewing) {
+      stopBgm();
+      bgmPreviewing = false;
+    }
+  });
+
+  // conf 定義済みウィンドウなので破棄せず隠す（再度開ける）。試聴中なら止める。
   async function close() {
+    stopBgm();
+    bgmPreviewing = false;
     await hideWindow();
   }
 
@@ -224,6 +263,37 @@
     />
   </label>
 
+  <hr />
+
+  <label class="row">
+    <span>Focus BGM (plays while focusing)</span>
+    <span class="sound">
+      <select bind:value={focusBgm}>
+        {#each settings.BGM_OPTIONS as opt}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
+      <button
+        class="preview"
+        title={bgmPreviewing ? "Stop" : "Preview"}
+        aria-label="Preview BGM"
+        disabled={focusBgm === "none"}
+        onclick={toggleBgmPreview}>{bgmPreviewing ? "■" : "▶"}</button
+      >
+    </span>
+  </label>
+
+  <label class="row">
+    <span>BGM volume ({bgmVolume})</span>
+    <input
+      type="range"
+      min="0"
+      max={settings.MAX_VOLUME}
+      step="5"
+      bind:value={bgmVolume}
+    />
+  </label>
+
   <div class="footer">
     <span class="status" class:error={saveState === "error"}>{statusText}</span>
     <button onclick={close}>Close</button>
@@ -266,6 +336,12 @@
   }
   input[type="range"] {
     width: 7rem;
+  }
+  hr {
+    width: 100%;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    margin: 0.2rem 0;
   }
   .sound {
     display: flex;

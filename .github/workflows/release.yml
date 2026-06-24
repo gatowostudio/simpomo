@@ -63,10 +63,9 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # pnpm のバージョンは package.json の packageManager から取る（version は指定しない）。
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Setup Node
         uses: actions/setup-node@v4

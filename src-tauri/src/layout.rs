@@ -4,7 +4,7 @@
 //! 対応できるよう段階を多めに用意し、ユーザーが画面に合うものを選べるようにする（殿の方針）。
 //! 位置はモニタの論理サイズと原点から四隅を算出する。設定での選択・永続化は #5 で本モジュールを使う。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{LogicalPosition, LogicalSize, WebviewWindow};
 
 /// 画面の隅からのマージン（論理ピクセル）。
@@ -15,7 +15,7 @@ const MARGIN: f64 = 16.0;
 /// 低解像度ノート〜高解像度大画面まで選べるよう 6 段階。既定は「邪魔にならないが
 /// 見づらくない」`Medium`。`tauri.conf.json` の初期 width/height はこの Medium と一致させてある
 /// （visible:false → setup で再適用するが、表示確定前のサイズを近づけてチラつきを抑えるため）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SizePreset {
     XSmall,
@@ -41,7 +41,7 @@ impl SizePreset {
 }
 
 /// 表示位置（画面の四隅）。既定は右上（spec）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
     TopRight,

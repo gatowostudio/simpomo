@@ -19,7 +19,5 @@ tauri-build = { version = "2", features = [] }
 # tray-icon: システムトレイ常駐（✕=非表示・トレイから再表示/終了）に使う。
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
-# フロント(timer.ts)との JSON キー契約をテストで固定するためだけに使う（本体には含めない）。
+# 設定の永続化（settings.json の入出力）に使う。
 serde_json = "1"

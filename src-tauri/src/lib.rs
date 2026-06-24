@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod settings;
 pub mod timer;
 
 use std::sync::{Arc, Condvar, Mutex};
@@ -6,9 +7,12 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 
 use layout::{Corner, SizePreset};
+use settings::AppSettings;
 
 use timer::{Config, Status, Timer, TimerEvent, TimerSnapshot};
 
@@ -27,6 +31,12 @@ type SharedState = Arc<Shared>;
 
 const EVENT_SNAPSHOT: &str = "timer://snapshot";
 const EVENT_TIMER_EVENTS: &str = "timer://event";
+/// 設定変更を全ウィンドウへ通知する（snapshot に乗らない設定を #6 等が購読する）。
+const EVENT_SETTINGS: &str = "settings://changed";
+
+/// ウィンドウラベル。フロント（main.ts / settings.ts）と一致させる文字列契約。
+const MAIN_LABEL: &str = "main";
+const SETTINGS_LABEL: &str = "settings";
 
 fn emit_snapshot(app: &AppHandle, snapshot: TimerSnapshot) {
     // 送信失敗（ウィンドウ破棄直後など）は致命ではないので握りつぶす。
@@ -89,21 +99,87 @@ fn timer_skip(app: AppHandle, state: State<'_, SharedState>) {
     state.wake.notify_all();
 }
 
-/// ウィンドウのサイズプリセットと表示位置を適用する。設定（#5）から呼ぶ想定。
-/// 適用失敗をフロントが検知できるよう Result を返す。
-#[tauri::command]
-fn set_window_layout(app: AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
+/// メインウィンドウへサイズ・位置を適用する（コマンドと設定保存の共通経路）。
+fn apply_main_layout(app: &AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
     let main = app
-        .get_webview_window("main")
+        .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
     layout::apply(&main, size, corner).map_err(|e| e.to_string())
 }
 
+/// ウィンドウのサイズプリセットと表示位置を適用する。設定（#5）から呼ぶ想定。
+/// 適用失敗をフロントが検知できるよう Result を返す。
+#[tauri::command]
+fn set_window_layout(app: AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
+    apply_main_layout(&app, size, corner)
+}
+
+/// 現在の永続化設定を返す（設定ウィンドウの初期表示用）。
+#[tauri::command]
+fn get_settings(app: AppHandle) -> AppSettings {
+    settings::load(&app)
+}
+
+/// 設定を保存し、タイマーとウィンドウへ反映する（設定ウィンドウから呼ぶ）。
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    settings: AppSettings,
+) -> Result<(), String> {
+    // Rust が値検証の権威。保存値=実効値になるよう先に正規化する。
+    let settings = settings.sanitized();
+    settings::save(&app, &settings)?;
+    // タイマーへ反映（Idle なら新時間で reset、稼働中はセッション維持し次フェーズ以降）。
+    {
+        let mut timer = state.timer.lock().unwrap();
+        timer.set_config(settings.to_config());
+        emit_snapshot(&app, timer.snapshot());
+    }
+    state.wake.notify_all();
+    // 設定変更を通知（snapshot に乗らない設定を #6 等が購読する）。
+    let _ = app.emit(EVENT_SETTINGS, settings);
+    // メインウィンドウの位置・サイズへ反映（失敗はフロントへ伝播）。
+    apply_main_layout(&app, settings.size, settings.corner)
+}
+
+/// 設定ウィンドウを開く（無ければ生成、あれば前面化）。別ウィンドウ方式（ADR-0002）。
+#[tauri::command]
+fn open_settings(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(SETTINGS_LABEL) {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, SETTINGS_LABEL, WebviewUrl::App("index.html".into()))
+        .title("simpomo 設定")
+        .inner_size(360.0, 480.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// メインウィンドウを表示して前面に出す（トレイから呼ぶ）。
 fn show_main(app: &AppHandle) {
-    if let Some(main) = app.get_webview_window("main") {
+    if let Some(main) = app.get_webview_window(MAIN_LABEL) {
         let _ = main.show();
         let _ = main.set_focus();
+    }
+}
+
+/// 起動時に永続化設定を読み込み、タイマーとウィンドウへ適用してメインを表示する。
+fn apply_loaded_settings(app: &AppHandle, state: &SharedState) {
+    let loaded = settings::load(app);
+    {
+        let mut timer = state.timer.lock().unwrap();
+        timer.set_config(loaded.to_config());
+    }
+    // ウィンドウは conf で visible:false。位置・サイズを確定してから表示し、
+    // 既定位置への一瞬のジャンプ（チラつき）を避ける（#4）。
+    if let Some(main) = app.get_webview_window(MAIN_LABEL) {
+        let _ = layout::apply(&main, loaded.size, loaded.corner);
+        let _ = main.show();
     }
 }
 
@@ -191,20 +267,15 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle();
             setup_tray(handle)?;
-            // ウィンドウは conf で visible:false。位置・サイズを確定してから表示し、
-            // 既定位置への一瞬のジャンプ（チラつき）を避ける（#4）。
-            // 位置/サイズの「真実」は #5 の永続化ストアに置く予定。ここは未保存時の既定値。
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = layout::apply(&main, SizePreset::Medium, Corner::TopRight);
-                let _ = main.show();
-            }
+            apply_loaded_settings(handle, &state);
             spawn_tick_loop(handle.clone(), state.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
-            // トレイ常駐: ✕ や Alt+F4 では終了せず非表示にする。終了はトレイメニューから。
+            // トレイ常駐: メインの ✕ や Alt+F4 では終了せず非表示にする。終了はトレイメニューから。
+            // 設定ウィンドウは通常どおり閉じる（label 判定で除外）。
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                if window.label() == MAIN_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -216,7 +287,10 @@ pub fn run() {
             timer_pause,
             timer_reset,
             timer_skip,
-            set_window_layout
+            set_window_layout,
+            get_settings,
+            save_settings,
+            open_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as timer from "./lib/timer";
+  import { openSettings, SECS_PER_MINUTE } from "./lib/settings";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
   // 既定 ON は tauri.conf.json の alwaysOnTop: true と一致させている（spec の中核体験）。
@@ -22,10 +23,10 @@
   const clock = $derived(snap ? formatClock(snap.remainingSecs) : "--:--");
 
   function formatClock(secs: number): string {
-    const m = Math.floor(secs / 60)
+    const m = Math.floor(secs / SECS_PER_MINUTE)
       .toString()
       .padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
+    const s = (secs % SECS_PER_MINUTE).toString().padStart(2, "0");
     return `${m}:${s}`;
   }
 
@@ -66,6 +67,14 @@
   async function onHide() {
     await getCurrentWindow().hide();
   }
+  async function onOpenSettings() {
+    // 連打などで生成が競合しても UI を壊さないよう失敗は握りつぶす。
+    try {
+      await openSettings();
+    } catch (e) {
+      console.error("failed to open settings", e);
+    }
+  }
 </script>
 
 <main class:break={isBreak}>
@@ -78,6 +87,8 @@
   >
   <button class="close" title="隠す（トレイに常駐）" aria-label="隠す" onclick={onHide}
     >✕</button
+  >
+  <button class="gear" title="設定" aria-label="設定" onclick={onOpenSettings}>⚙</button
   >
 
   <!-- 装飾なし(decorations:false)のため、この領域をドラッグでウィンドウ移動できるようにする。 -->
@@ -159,7 +170,8 @@
   }
 
   .pin,
-  .close {
+  .close,
+  .gear {
     position: absolute;
     top: 0.3rem;
     background: none;
@@ -167,6 +179,7 @@
     cursor: pointer;
     color: inherit;
     opacity: 0.35;
+    line-height: 1;
   }
   .pin {
     right: 0.3rem;
@@ -177,13 +190,17 @@
     opacity: 0.9;
     filter: none;
   }
+  .gear {
+    right: 1.7rem;
+    font-size: 0.85rem;
+  }
   .close {
     left: 0.3rem;
     font-size: 0.8rem;
-    line-height: 1;
   }
   .pin:hover,
-  .close:hover {
+  .close:hover,
+  .gear:hover {
     opacity: 0.85;
   }
 </style>

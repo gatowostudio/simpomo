@@ -69,7 +69,8 @@ const FILLERS: Record<NoiseKind, (d: Float32Array) => void> = {
 
 /**
  * ループ用ノイズバッファを返す（種類ごとにキャッシュ）。
- * 末尾を少し余分に生成して先頭へクロスフェードし、ループ継ぎ目のクリックを消す。
+ * 左右チャンネルを別々に生成してステレオに広げ（平坦さを和らげる）、末尾を少し余分に生成して
+ * 先頭へクロスフェードすることでループ継ぎ目のクリックを消す。
  */
 function getNoiseBuffer(ctx: AudioContext, kind: NoiseKind): AudioBuffer {
   const cached = bufferCache.get(kind);
@@ -77,18 +78,31 @@ function getNoiseBuffer(ctx: AudioContext, kind: NoiseKind): AudioBuffer {
 
   const n = Math.floor(ctx.sampleRate * NOISE_SECONDS);
   const fade = Math.floor(ctx.sampleRate * SEAM_FADE_SECONDS);
-  const tmp = new Float32Array(n + fade);
-  FILLERS[kind](tmp);
-  // 末尾の延長 [n, n+fade) を先頭 [0, fade) へクロスフェード。
-  // これで data[n-1] → data[0] が連続になり、ループ時のプチノイズが消える。
-  for (let i = 0; i < fade; i++) {
-    const w = i / fade;
-    tmp[i] = tmp[i] * w + tmp[n + i] * (1 - w);
+  const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const tmp = new Float32Array(n + fade);
+    FILLERS[kind](tmp); // チャンネルごとに独立した乱数 → 左右が相関せず広がりが出る
+    // 末尾の延長 [n, n+fade) を先頭 [0, fade) へクロスフェードしループ継ぎ目を連続に。
+    for (let i = 0; i < fade; i++) {
+      const w = i / fade;
+      tmp[i] = tmp[i] * w + tmp[n + i] * (1 - w);
+    }
+    buf.getChannelData(ch).set(tmp.subarray(0, n));
   }
-  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
-  buf.getChannelData(0).set(tmp.subarray(0, n));
   bufferCache.set(kind, buf);
   return buf;
+}
+
+/** ゆっくりした揺らぎ（呼吸するような動き）を master gain に重ね、機械的な平坦さを和らげる。 */
+function addBreathing(ctx: AudioContext, out: GainNode, baseGain: number): void {
+  const lfo = ctx.createOscillator();
+  lfo.type = "sine";
+  lfo.frequency.value = 0.11; // 約 9 秒周期
+  const depth = ctx.createGain();
+  depth.gain.value = baseGain * 0.18; // ±18% 程度の控えめな揺れ
+  lfo.connect(depth).connect(out.gain);
+  lfo.start();
+  nodes.push(lfo);
 }
 
 /** ループノイズ + 任意フィルタ + ゲインを out へ繋いで再生し、停止できるよう記録する。 */
@@ -205,10 +219,12 @@ export function setBgm(id: BgmId, volume: number): void {
   }
   stopBgm();
   try {
+    const baseGain = clamp01(volume) * BGM_CEIL;
     master = ctx.createGain();
-    master.gain.value = clamp01(volume) * BGM_CEIL;
+    master.gain.value = baseGain;
     master.connect(ctx.destination);
     BUILDERS[id](ctx, master);
+    addBreathing(ctx, master, baseGain);
     current = id;
   } catch (e) {
     console.error("failed to start bgm", e);

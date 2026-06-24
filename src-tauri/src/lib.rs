@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
-use layout::{Corner, SizePreset};
+use layout::Corner;
 use settings::AppSettings;
 
 use timer::{Config, Status, Timer, TimerEvent, TimerSnapshot};
@@ -102,19 +103,12 @@ fn timer_skip(app: AppHandle, state: State<'_, SharedState>) {
     state.wake.notify_all();
 }
 
-/// メインウィンドウへサイズ・位置を適用する（コマンドと設定保存の共通経路）。
-fn apply_main_layout(app: &AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
+/// メインウィンドウを指定の隅へ移動する（設定保存・起動時の共通経路）。サイズは触らない。
+fn apply_main_position(app: &AppHandle, corner: Corner) -> Result<(), String> {
     let main = app
         .get_webview_window(MAIN_LABEL)
         .ok_or_else(|| "main window not found".to_string())?;
-    layout::apply(&main, size, corner).map_err(|e| e.to_string())
-}
-
-/// ウィンドウのサイズプリセットと表示位置を適用する。設定（#5）から呼ぶ想定。
-/// 適用失敗をフロントが検知できるよう Result を返す。
-#[tauri::command]
-fn set_window_layout(app: AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
-    apply_main_layout(&app, size, corner)
+    layout::apply_position(&main, corner).map_err(|e| e.to_string())
 }
 
 /// 現在の永続化設定を返す（設定ウィンドウの初期表示用）。
@@ -140,10 +134,11 @@ fn save_settings(
         emit_snapshot(&app, timer.snapshot());
     }
     state.wake.notify_all();
-    // 設定変更を通知（snapshot に乗らない設定を #6 等が購読する）。
+    let corner = settings.corner;
+    // 設定変更を通知（snapshot に乗らない設定＝通知音/BGM/背景色を App が購読して反映）。
     let _ = app.emit(EVENT_SETTINGS, settings);
-    // メインウィンドウの位置・サイズへ反映（失敗はフロントへ伝播）。
-    apply_main_layout(&app, settings.size, settings.corner)
+    // メインウィンドウを指定の隅へ移動（失敗はフロントへ伝播）。サイズは触らない。
+    apply_main_position(&app, corner)
 }
 
 /// 設定ウィンドウを表示する（conf で定義済みの非表示ウィンドウを見せる）。別ウィンドウ方式（ADR-0002）。
@@ -186,10 +181,10 @@ fn apply_loaded_settings(app: &AppHandle, state: &SharedState) {
         let mut timer = state.timer.lock().unwrap();
         timer.set_config(loaded.to_config());
     }
-    // ウィンドウは conf で visible:false。位置・サイズを確定してから表示し、
-    // 既定位置への一瞬のジャンプ（チラつき）を避ける（#4）。
+    // ウィンドウは conf で visible:false。サイズは window-state プラグインが復元済み。
+    // 位置を確定してから表示し、既定位置への一瞬のジャンプ（チラつき）を避ける。
     if let Some(main) = app.get_webview_window(MAIN_LABEL) {
-        let _ = layout::apply(&main, loaded.size, loaded.corner);
+        let _ = layout::apply_position(&main, loaded.corner);
         let _ = main.show();
     }
 }
@@ -277,6 +272,13 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        // ウィンドウのサイズ/最大化状態を永続化・復元する（位置は Corner 設定で別途決めるので除外）。
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                // サイズのみ永続化（位置は Corner 設定で決める。最大化は復元しない＝位置適用との競合回避）。
+                .with_state_flags(StateFlags::SIZE)
+                .build(),
+        )
         .manage(state.clone())
         .setup(move |app| {
             let handle = app.handle();
@@ -292,6 +294,8 @@ pub fn run() {
                 let label = window.label();
                 if label == MAIN_LABEL || label == SETTINGS_LABEL {
                     api.prevent_close();
+                    // 隠す前にサイズを保存しておく（強制終了されても直近サイズが残るように）。
+                    let _ = window.app_handle().save_window_state(StateFlags::SIZE);
                     let _ = window.hide();
                 }
             }
@@ -302,7 +306,6 @@ pub fn run() {
             timer_pause,
             timer_reset,
             timer_skip,
-            set_window_layout,
             get_settings,
             save_settings,
             open_settings,

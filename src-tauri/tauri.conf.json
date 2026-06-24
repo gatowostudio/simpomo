@@ -14,12 +14,14 @@
       {
         "label": "main",
         "title": "simpomo",
-        "width": 240,
-        "height": 150,
+        "width": 300,
+        "height": 188,
+        "minWidth": 220,
+        "minHeight": 150,
         "alwaysOnTop": true,
         "decorations": false,
-        "resizable": false,
-        "maximizable": false,
+        "resizable": true,
+        "maximizable": true,
         "visible": false
       },
       {

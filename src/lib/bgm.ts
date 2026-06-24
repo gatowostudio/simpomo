@@ -11,6 +11,11 @@ export type BgmId = "none" | "white" | "pink" | "brown" | "rain" | "campfire";
 
 /** ループ用ノイズの長さ。 */
 const NOISE_SECONDS = 6;
+/**
+ * BGM 全体のゲイン上限。スライダ 0..100 はここ(0..BGM_CEIL)へ写像する。
+ * BGM は「集中の邪魔をしない」控えめな音量が前提なので低めに抑える。
+ */
+const BGM_CEIL = 0.28;
 /** ループ継ぎ目のクロスフェード長（クリックノイズ回避）。 */
 const SEAM_FADE_SECONDS = 0.05;
 
@@ -138,15 +143,16 @@ function scheduleCrackle(ctx: AudioContext, out: GainNode): void {
 }
 
 const BUILDERS: Record<Exclude<BgmId, "none">, (ctx: AudioContext, out: GainNode) => void> = {
-  white: (ctx, out) => addNoise(ctx, out, "white", 0.35),
-  pink: (ctx, out) => addNoise(ctx, out, "pink", 0.6),
-  brown: (ctx, out) => addNoise(ctx, out, "brown", 0.8),
+  white: (ctx, out) => addNoise(ctx, out, "white", 0.28),
+  pink: (ctx, out) => addNoise(ctx, out, "pink", 0.45),
+  brown: (ctx, out) => addNoise(ctx, out, "brown", 0.6),
+  // 弱めの雨（テントに当たる感じ）: 本体を抑えめ・やわらかめにし、細かい当たりを少し残す。
   rain: (ctx, out) => {
-    addNoise(ctx, out, "white", 0.5, { type: "lowpass", freq: 3200 }); // 雨の本体
-    addNoise(ctx, out, "white", 0.18, { type: "bandpass", freq: 6000, q: 0.7 }); // 細かいパラパラ
+    addNoise(ctx, out, "white", 0.28, { type: "lowpass", freq: 1800 }); // やわらかい雨の本体
+    addNoise(ctx, out, "white", 0.1, { type: "bandpass", freq: 4500, q: 0.8 }); // ぱらぱら当たる粒
   },
   campfire: (ctx, out) => {
-    addNoise(ctx, out, "brown", 0.7, { type: "lowpass", freq: 500 }); // 低いゴーという炎
+    addNoise(ctx, out, "brown", 0.55, { type: "lowpass", freq: 500 }); // 低いゴーという炎
     scheduleCrackle(ctx, out); // パチパチ
   },
 };
@@ -194,13 +200,13 @@ export function setBgm(id: BgmId, volume: number): void {
   // 取得のたびに suspended なら resume を試みる（OS スリープ等からの復帰も兼ねる）。
   const ctx = getAudioContext();
   if (id === current && master) {
-    master.gain.value = clamp01(volume);
+    master.gain.value = clamp01(volume) * BGM_CEIL;
     return;
   }
   stopBgm();
   try {
     master = ctx.createGain();
-    master.gain.value = clamp01(volume);
+    master.gain.value = clamp01(volume) * BGM_CEIL;
     master.connect(ctx.destination);
     BUILDERS[id](ctx, master);
     current = id;

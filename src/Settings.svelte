@@ -10,15 +10,16 @@
   let breakMin = $state(5);
   let cyclesInfinite = $state(false);
   let cyclesCount = $state(0);
-  let size = $state<settings.SizePreset>("medium");
   let corner = $state<settings.Corner>("topRight");
   let workEndSound = $state<SoundId>("chime");
   let breakEndSound = $state<SoundId>("ding");
   let sessionEndSound = $state<SoundId>("fanfare");
   let volume = $state(70);
   let focusBgm = $state<BgmId>("none");
-  let bgmVolume = $state(40);
+  let bgmVolume = $state(25);
   let bgmPreviewing = $state(false);
+  let focusBgColor = $state(settings.DEFAULT_FOCUS_BG);
+  let breakBgColor = $state(settings.DEFAULT_BREAK_BG);
 
   // ライブ反映（明示保存ではなく変更即適用）。「保存し忘れて閉じる」事故を構造的に無くす。
   // 数値入力の連打を避けるためデバウンスする。状態表示用に save の進行/エラーを持つ。
@@ -42,14 +43,15 @@
       breakSecs: settings.minutesToSecs(num(breakMin, 5)),
       cyclesInfinite,
       cyclesCount: Math.max(0, Math.floor(num(cyclesCount, 0))),
-      size,
       corner,
       workEndSound,
       breakEndSound,
       sessionEndSound,
       volume: Math.round(num(volume, 70)),
       focusBgm,
-      bgmVolume: Math.round(num(bgmVolume, 40)),
+      bgmVolume: Math.round(num(bgmVolume, 25)),
+      focusBgColor,
+      breakBgColor,
     };
   }
 
@@ -60,7 +62,6 @@
       breakMin = settings.secsToMinutes(s.breakSecs);
       cyclesInfinite = s.cyclesInfinite;
       cyclesCount = s.cyclesCount;
-      size = s.size;
       corner = s.corner;
       workEndSound = s.workEndSound;
       breakEndSound = s.breakEndSound;
@@ -68,6 +69,8 @@
       volume = s.volume;
       focusBgm = s.focusBgm;
       bgmVolume = s.bgmVolume;
+      focusBgColor = s.focusBgColor;
+      breakBgColor = s.breakBgColor;
       lastApplied = JSON.stringify(buildSettings());
       loaded = true;
     } catch (e) {
@@ -193,13 +196,18 @@
   </label>
 
   <label class="row">
-    <span>Window size</span>
-    <select bind:value={size}>
-      {#each settings.SIZE_OPTIONS as opt}
-        <option value={opt.value}>{opt.label}</option>
-      {/each}
-    </select>
+    <span>Focus background</span>
+    <input type="color" bind:value={focusBgColor} />
   </label>
+
+  <label class="row">
+    <span>Break background</span>
+    <input type="color" bind:value={breakBgColor} />
+  </label>
+
+  <p class="hint">Drag the window edge to resize. The size is remembered.</p>
+
+  <hr />
 
   <label class="row">
     <span>Focus end sound</span>
@@ -336,6 +344,20 @@
   }
   input[type="range"] {
     width: 7rem;
+  }
+  input[type="color"] {
+    width: 2.5rem;
+    height: 1.6rem;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 5px;
+    background: none;
+    cursor: pointer;
+  }
+  .hint {
+    font-size: 0.75rem;
+    opacity: 0.5;
+    margin: 0.1rem 0 0;
   }
   hr {
     width: 100%;

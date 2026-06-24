@@ -21,3 +21,5 @@ tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 # 設定の永続化（settings.json の入出力）に使う。
 serde_json = "1"
+# ウィンドウのサイズ/最大化状態を永続化・復元する。
+tauri-plugin-window-state = "2"

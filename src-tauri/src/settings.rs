@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::layout::{Corner, SizePreset};
+use crate::layout::Corner;
 use crate::timer::{Config, CycleSetting};
 
 /// フェーズ時間の下限（1 分）・上限（180 分）。設定 UI も同じ範囲を提示する。
@@ -23,6 +23,24 @@ pub const MAX_PHASE_SECS: u32 = 180 * 60;
 pub const MAX_CYCLES: u32 = 99;
 /// 音量の上限（0〜100）。
 pub const MAX_VOLUME: u8 = 100;
+/// 背景色の既定（#rrggbb）。
+pub const DEFAULT_FOCUS_BG: &str = "#1c1c1e";
+pub const DEFAULT_BREAK_BG: &str = "#f0efe9";
+
+/// `#rrggbb` 形式かどうか。
+fn is_hex_color(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 7 && b[0] == b'#' && b[1..].iter().all(u8::is_ascii_hexdigit)
+}
+
+/// 不正な色文字列は既定色へ落とす。
+fn sanitize_color(s: &str, default: &str) -> String {
+    if is_hex_color(s) {
+        s.to_string()
+    } else {
+        default.to_string()
+    }
+}
 
 /// 通知音プリセット。再生はフロント（src/lib/sounds.ts、Web Audio 合成）が行い、Rust は識別子を持つだけ。
 /// フロントの SoundId 型と serde lowercase で対応する手書きミラー。
@@ -57,7 +75,8 @@ pub enum BgmId {
 /// `#[serde(default)]`: 将来フィールドが増えても（#6 の通知音など）、旧 `settings.json` に
 /// 欠けたフィールドは `Default` から補われる。これが無いと欠損フィールドで deserialize が失敗し、
 /// `load` のフォールバックで全設定が既定に戻ってしまう。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// String フィールドを含むため Copy は付けない（Clone のみ）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     /// 作業フェーズ秒数（UI では分で扱う）。
@@ -68,7 +87,7 @@ pub struct AppSettings {
     pub cycles_infinite: bool,
     /// 自動継続するセット数。0 = 1 セットで停止（既定）。`cycles_infinite` が false のとき有効。
     pub cycles_count: u32,
-    pub size: SizePreset,
+    /// 初期表示位置（どの隅に出すか）。サイズは端でリサイズし plugin が永続化する。
     pub corner: Corner,
     /// 作業フェーズ終了時の通知音。
     pub work_end_sound: SoundId,
@@ -82,6 +101,10 @@ pub struct AppSettings {
     pub focus_bgm: BgmId,
     /// BGM の音量（0〜100）。
     pub bgm_volume: u8,
+    /// 作業中の背景色（#rrggbb）。音が無くても色でフェーズが分かるようにする。
+    pub focus_bg_color: String,
+    /// 休憩中の背景色（#rrggbb）。
+    pub break_bg_color: String,
 }
 
 impl Default for AppSettings {
@@ -92,14 +115,15 @@ impl Default for AppSettings {
             break_secs: c.break_secs,
             cycles_infinite: false,
             cycles_count: 0,
-            size: SizePreset::Medium,
             corner: Corner::TopRight,
             work_end_sound: SoundId::Chime,
             break_end_sound: SoundId::Ding,
             session_end_sound: SoundId::Fanfare,
             volume: 70,
             focus_bgm: BgmId::None,
-            bgm_volume: 40,
+            bgm_volume: 25,
+            focus_bg_color: DEFAULT_FOCUS_BG.to_string(),
+            break_bg_color: DEFAULT_BREAK_BG.to_string(),
         }
     }
 }
@@ -119,13 +143,16 @@ impl AppSettings {
             },
             volume: self.volume.min(MAX_VOLUME),
             bgm_volume: self.bgm_volume.min(MAX_VOLUME),
-            // 残り（cycles_infinite / size / corner / 各 sound / focus_bgm）は素通し。
+            // 不正な色（#rrggbb 以外）は既定色へ戻す（Rust が値検証の権威）。
+            focus_bg_color: sanitize_color(&self.focus_bg_color, DEFAULT_FOCUS_BG),
+            break_bg_color: sanitize_color(&self.break_bg_color, DEFAULT_BREAK_BG),
+            // 残り（cycles_infinite / corner / 各 sound / focus_bgm）は素通し。
             ..self
         }
     }
 
     /// タイマーのコア設定へ変換する。
-    pub fn to_config(self) -> Config {
+    pub fn to_config(&self) -> Config {
         Config {
             work_secs: self.work_secs,
             break_secs: self.break_secs,
@@ -172,8 +199,8 @@ mod tests {
         assert_eq!(s.break_secs, 300);
         assert!(!s.cycles_infinite);
         assert_eq!(s.cycles_count, 0);
-        assert_eq!(s.size, SizePreset::Medium);
         assert_eq!(s.corner, Corner::TopRight);
+        assert_eq!(s.focus_bgm, BgmId::None);
     }
 
     #[test]
@@ -214,6 +241,18 @@ mod tests {
     }
 
     #[test]
+    fn sanitized_fixes_invalid_colors() {
+        let s = AppSettings {
+            focus_bg_color: "not-a-color".to_string(),
+            break_bg_color: "#abcdef".to_string(),
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(s.focus_bg_color, DEFAULT_FOCUS_BG); // 不正→既定
+        assert_eq!(s.break_bg_color, "#abcdef"); // 正しい hex は保持
+    }
+
+    #[test]
     fn sanitized_caps_cycles_count() {
         let s = AppSettings {
             cycles_infinite: false,
@@ -231,7 +270,8 @@ mod tests {
         let s: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(s.work_secs, 1800); // 指定値は保持
         assert_eq!(s.break_secs, 300); // 欠損は既定
-        assert_eq!(s.size, SizePreset::Medium); // 欠損は既定
+        assert_eq!(s.corner, Corner::TopRight); // 欠損は既定
+        assert_eq!(s.focus_bg_color, "#1c1c1e"); // 欠損は既定
     }
 
     #[test]
@@ -242,7 +282,6 @@ mod tests {
             break_secs: 600,
             cycles_infinite: true,
             cycles_count: 0,
-            size: SizePreset::Large,
             corner: Corner::BottomLeft,
             work_end_sound: SoundId::Beep,
             break_end_sound: SoundId::None,
@@ -250,6 +289,8 @@ mod tests {
             volume: 55,
             focus_bgm: BgmId::Rain,
             bgm_volume: 35,
+            focus_bg_color: "#000000".to_string(),
+            break_bg_color: "#ffffff".to_string(),
         };
         let json = serde_json::to_string(&s).unwrap();
         for key in [
@@ -257,7 +298,6 @@ mod tests {
             "breakSecs",
             "cyclesInfinite",
             "cyclesCount",
-            "size",
             "corner",
             "workEndSound",
             "breakEndSound",
@@ -265,6 +305,8 @@ mod tests {
             "volume",
             "focusBgm",
             "bgmVolume",
+            "focusBgColor",
+            "breakBgColor",
         ] {
             assert!(json.contains(&format!("\"{key}\"")), "missing key: {key}");
         }

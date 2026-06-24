@@ -1,7 +1,7 @@
 // 設定の永続化（#5）への薄いブリッジ。
 //
 // 型の同期契約: 下記の型・enum 文字列は src-tauri/src/settings.rs（AppSettings）と
-// src-tauri/src/layout.rs（SizePreset/Corner）の手書きミラー。Rust 側のフィールド名・serde rename
+// src-tauri/src/layout.rs（Corner）の手書きミラー。Rust 側のフィールド名・serde rename
 // （camelCase / lowercase）・enum の variant を変えたら本ファイルも必ず同期すること。
 // ドリフトは Rust 側テスト（settings.rs: json_round_trips / missing_fields_*、layout.rs: *_deserializes_*）が
 // 部分的に検出する。型生成（tauri-specta 等）は未導入で手動同期。
@@ -30,14 +30,6 @@ export const minutesToSecs = (min: number): number =>
 export const secsToMinutes = (secs: number): number =>
   Math.round(secs / SECS_PER_MINUTE);
 
-export type SizePreset =
-  | "xsmall"
-  | "small"
-  | "medium"
-  | "large"
-  | "xlarge"
-  | "xxlarge";
-
 export type Corner = "topRight" | "topLeft" | "bottomRight" | "bottomLeft";
 
 export interface AppSettings {
@@ -46,7 +38,7 @@ export interface AppSettings {
   cyclesInfinite: boolean;
   /** 0 = 1 セットで停止（既定）。cyclesInfinite が false のとき有効。 */
   cyclesCount: number;
-  size: SizePreset;
+  /** 初期表示位置（どの隅に出すか）。サイズは端でリサイズし、plugin が永続化する。 */
   corner: Corner;
   workEndSound: SoundId;
   breakEndSound: SoundId;
@@ -57,6 +49,10 @@ export interface AppSettings {
   focusBgm: BgmId;
   /** BGM の音量（0〜100）。 */
   bgmVolume: number;
+  /** 作業中の背景色（#rrggbb）。 */
+  focusBgColor: string;
+  /** 休憩中の背景色（#rrggbb）。 */
+  breakBgColor: string;
 }
 
 export const getSettings = (): Promise<AppSettings> => invoke("get_settings");
@@ -73,16 +69,8 @@ export const onSettingsChanged = (
 ): Promise<UnlistenFn> =>
   listen<AppSettings>(EVENT_SETTINGS_CHANGED, (e) => cb(e.payload));
 
-// ラベルは Record で全 variant の網羅を型強制する（layout.rs の enum に variant を足したら
+// ラベルは Record で全 variant の網羅を型強制する（enum に variant を足したら
 // ここがコンパイルエラーになり、同期漏れを防ぐ）。表示順は定義順。
-const SIZE_LABELS: Record<SizePreset, string> = {
-  xsmall: "XS",
-  small: "S",
-  medium: "M",
-  large: "L",
-  xlarge: "XL",
-  xxlarge: "XXL",
-};
 const CORNER_LABELS: Record<Corner, string> = {
   topRight: "Top right",
   topLeft: "Top left",
@@ -111,9 +99,10 @@ const BGM_LABELS: Record<BgmId, string> = {
 /** 音量の上限（Rust settings.rs MAX_VOLUME と対応）。 */
 export const MAX_VOLUME = 100;
 
-export const SIZE_OPTIONS = (Object.keys(SIZE_LABELS) as SizePreset[]).map(
-  (value) => ({ value, label: SIZE_LABELS[value] }),
-);
+/** 背景色の既定（Rust settings.rs DEFAULT_FOCUS_BG / DEFAULT_BREAK_BG と一致させる）。 */
+export const DEFAULT_FOCUS_BG = "#1c1c1e";
+export const DEFAULT_BREAK_BG = "#f0efe9";
+
 export const CORNER_OPTIONS = (Object.keys(CORNER_LABELS) as Corner[]).map(
   (value) => ({ value, label: CORNER_LABELS[value] }),
 );

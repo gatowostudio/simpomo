@@ -6,11 +6,14 @@
     getSettings,
     onSettingsChanged,
     SECS_PER_MINUTE,
+    DEFAULT_FOCUS_BG,
+    DEFAULT_BREAK_BG,
     type AppSettings,
   } from "./lib/settings";
-  import { setAlwaysOnTop, hideWindow } from "./lib/window";
+  import { setAlwaysOnTop, hideWindow, startResize } from "./lib/window";
   import { playSound, soundsForEvents, type SoundId } from "./lib/sounds";
   import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
+  import { textColorFor } from "./lib/color";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
   let workEndSound = $state<SoundId>("chime");
@@ -18,14 +21,19 @@
   let sessionEndSound = $state<SoundId>("fanfare");
   let volume = $state(70);
   let focusBgm = $state<BgmId>("none");
-  let bgmVolume = $state(40);
+  let bgmVolume = $state(25);
+  let focusBgColor = $state(DEFAULT_FOCUS_BG);
+  let breakBgColor = $state(DEFAULT_BREAK_BG);
   // 既定 ON は tauri.conf.json の alwaysOnTop: true と一致させている（spec の中核体験）。
-  // 位置/サイズ等の本格的なウィンドウ挙動は #4 で扱う。
   let alwaysOnTop = $state(true);
 
   const isRunning = $derived(snap?.status === "running");
   const isBreak = $derived(snap?.phase === "break");
   const phaseLabel = $derived(isBreak ? "BREAK" : "FOCUS");
+
+  // 背景色をフェーズで切替（音が無くても色で分かる）。文字色は背景の明るさから自動でコントラスト。
+  const bgColor = $derived(isBreak ? breakBgColor : focusBgColor);
+  const fgColor = $derived(textColorFor(bgColor));
 
   // セット表示: 「現在/総数」。無限は ∞。
   const setLabel = $derived.by(() => {
@@ -66,6 +74,8 @@
       volume = s.volume;
       focusBgm = s.focusBgm;
       bgmVolume = s.bgmVolume;
+      focusBgColor = s.focusBgColor;
+      breakBgColor = s.breakBgColor;
     };
     getSettings().then(applySoundSettings).catch(() => {});
     track(onSettingsChanged(applySoundSettings));
@@ -137,7 +147,10 @@
   Tauri はクリックした要素自体に data-tauri-drag-region が無いとドラッグしないので、背景・表示テキストの
   各要素に付ける（ボタンには付けない＝クリックとして動く）。
 -->
-<main class:break={isBreak} data-tauri-drag-region>
+<main
+  style="background-color: {bgColor}; color: {fgColor};"
+  data-tauri-drag-region
+>
   <button
     class="pin"
     class:active={alwaysOnTop}
@@ -165,31 +178,48 @@
     <button onclick={onReset} title="Reset" aria-label="Reset">⟲</button>
     <button onclick={onSkip} title="Skip" aria-label="Skip">⏭</button>
   </div>
+
+  <!-- 端をつまんでリサイズ（フレームレスなので自前ハンドル）。上辺は中央のみ（左右はボタン帯を避ける）。 -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-t" onmousedown={() => startResize("North")}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-l" onmousedown={() => startResize("West")}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-r" onmousedown={() => startResize("East")}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-b" onmousedown={() => startResize("South")}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-bl" onmousedown={() => startResize("SouthWest")}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="rz rz-br" onmousedown={() => startResize("SouthEast")}></div>
 </main>
 
 <style>
   /*
     すべてのサイズをウィンドウに比例させる: main の font-size を vmin ベースにし、子は em で組む。
-    こうするとサイズプリセット（ウィンドウ寸法）に応じて文字も一緒に拡縮する。
-    上部の操作ボタンは padding-top で確保した帯に置き、中央コンテンツと重ならないようにする。
+    こうすると端でリサイズしたウィンドウ寸法に応じて文字も一緒に拡縮する。
+    上部の操作ボタンは padding-top（= --band）で確保した帯に置き、中央コンテンツと重ならないようにする。
   */
   main {
+    --band: 1.7em; /* 上部ボタン帯の高さ。リサイズハンドルの top にも使う。 */
     position: relative;
     height: 100%;
     box-sizing: border-box;
-    font-size: clamp(8px, 8.5vmin, 26px);
+    overflow: hidden; /* 最小付近でも中身がウィンドウ外へはみ出さない安全策。 */
+    /* ウィンドウに比例。ただし下限を高めにして小さくても読めるように、上限は大窓向けに大きく。 */
+    font-size: clamp(11px, 8vmin, 48px);
     /* 上に操作ボタンの帯ぶんの余白を取り、被りを防ぐ */
-    padding: 1.7em 0.5em 0.6em;
+    padding: var(--band) 0.5em 0.6em;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 0.2em;
     user-select: none;
-    transition: color 0.3s;
-  }
-  main.break {
-    color: #6cc070; /* 休憩中は緑寄りに */
+    /* 背景色・文字色はフェーズで切り替わるので滑らかに遷移させる。 */
+    transition:
+      background-color 0.3s,
+      color 0.3s;
   }
 
   .display {
@@ -273,5 +303,54 @@
   .close:hover,
   .gear:hover {
     opacity: 0.85;
+  }
+
+  /* リサイズ用ハンドル（透明・最前面）。左右はボタン帯(--band)を避けて下げる。上辺は中央のみ。 */
+  .rz {
+    position: absolute;
+    z-index: 10;
+  }
+  .rz-t {
+    /* ボタン（左右の隅）を避けた上辺中央だけで上方向リサイズ。 */
+    top: 0;
+    left: 3em;
+    right: 3.4em;
+    height: 8px;
+    cursor: ns-resize;
+  }
+  .rz-l,
+  .rz-r {
+    top: var(--band);
+    bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+  }
+  .rz-l {
+    left: 0;
+  }
+  .rz-r {
+    right: 0;
+  }
+  .rz-b {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 8px;
+    cursor: ns-resize;
+  }
+  .rz-bl,
+  .rz-br {
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    z-index: 11;
+  }
+  .rz-bl {
+    left: 0;
+    cursor: nesw-resize;
+  }
+  .rz-br {
+    right: 0;
+    cursor: nwse-resize;
   }
 </style>

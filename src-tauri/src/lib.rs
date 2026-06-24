@@ -111,6 +111,13 @@ fn apply_main_position(app: &AppHandle, corner: Corner) -> Result<(), String> {
     layout::apply_position(&main, corner).map_err(|e| e.to_string())
 }
 
+/// メインをタスクバーに出すか（false）/ トレイのみ（true）を適用する。
+fn apply_skip_taskbar(app: &AppHandle, skip: bool) {
+    if let Some(main) = app.get_webview_window(MAIN_LABEL) {
+        let _ = main.set_skip_taskbar(skip);
+    }
+}
+
 /// 現在の永続化設定を返す（設定ウィンドウの初期表示用）。
 #[tauri::command]
 fn get_settings(app: AppHandle) -> AppSettings {
@@ -135,6 +142,7 @@ fn save_settings(
     }
     state.wake.notify_all();
     let corner = settings.corner;
+    apply_skip_taskbar(&app, settings.skip_taskbar);
     // 設定変更を通知（snapshot に乗らない設定＝通知音/BGM/背景色を App が購読して反映）。
     let _ = app.emit(EVENT_SETTINGS, settings);
     // メインウィンドウを指定の隅へ移動（失敗はフロントへ伝播）。サイズは触らない。
@@ -182,7 +190,8 @@ fn apply_loaded_settings(app: &AppHandle, state: &SharedState) {
         timer.set_config(loaded.to_config());
     }
     // ウィンドウは conf で visible:false。サイズは window-state プラグインが復元済み。
-    // 位置を確定してから表示し、既定位置への一瞬のジャンプ（チラつき）を避ける。
+    // タスクバー表示と位置を確定してから表示し、チラつき（タスクバーボタンの一瞬の出現/位置ジャンプ）を避ける。
+    apply_skip_taskbar(app, loaded.skip_taskbar);
     if let Some(main) = app.get_webview_window(MAIN_LABEL) {
         let _ = layout::apply_position(&main, loaded.corner);
         let _ = main.show();

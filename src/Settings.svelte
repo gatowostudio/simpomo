@@ -12,6 +12,7 @@
   let cyclesInfinite = $state(false);
   let cyclesCount = $state(0);
   let corner = $state<settings.Corner>("topRight");
+  let skipTaskbar = $state(true);
   let workEndSound = $state<SoundId>("chime");
   let breakEndSound = $state<SoundId>("ding");
   let sessionEndSound = $state<SoundId>("fanfare");
@@ -45,6 +46,7 @@
       cyclesInfinite,
       cyclesCount: Math.max(0, Math.floor(num(cyclesCount, 0))),
       corner,
+      skipTaskbar,
       workEndSound,
       breakEndSound,
       sessionEndSound,
@@ -64,6 +66,7 @@
       cyclesInfinite = s.cyclesInfinite;
       cyclesCount = s.cyclesCount;
       corner = s.corner;
+      skipTaskbar = s.skipTaskbar;
       workEndSound = s.workEndSound;
       breakEndSound = s.breakEndSound;
       sessionEndSound = s.sessionEndSound;
@@ -225,6 +228,11 @@
         <option value={opt.value}>{opt.label}</option>
       {/each}
     </select>
+  </label>
+
+  <label class="row checkbox">
+    <span>Tray only (hide from taskbar)</span>
+    <input type="checkbox" bind:checked={skipTaskbar} />
   </label>
 
   <label class="row">

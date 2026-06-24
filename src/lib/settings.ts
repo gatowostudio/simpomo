@@ -40,6 +40,8 @@ export interface AppSettings {
   cyclesCount: number;
   /** 初期表示位置（どの隅に出すか）。サイズは端でリサイズし、plugin が永続化する。 */
   corner: Corner;
+  /** タスクバーに出さずトレイのみ常駐するか（既定 true）。 */
+  skipTaskbar: boolean;
   workEndSound: SoundId;
   breakEndSound: SoundId;
   sessionEndSound: SoundId;

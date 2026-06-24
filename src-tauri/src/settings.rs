@@ -89,6 +89,8 @@ pub struct AppSettings {
     pub cycles_count: u32,
     /// 初期表示位置（どの隅に出すか）。サイズは端でリサイズし plugin が永続化する。
     pub corner: Corner,
+    /// タスクバーに出さず、システムトレイのみに常駐するか（既定 true＝邪魔にならない）。
+    pub skip_taskbar: bool,
     /// 作業フェーズ終了時の通知音。
     pub work_end_sound: SoundId,
     /// 休憩フェーズ終了時の通知音。
@@ -116,6 +118,7 @@ impl Default for AppSettings {
             cycles_infinite: false,
             cycles_count: 0,
             corner: Corner::TopRight,
+            skip_taskbar: true,
             work_end_sound: SoundId::Chime,
             break_end_sound: SoundId::Ding,
             session_end_sound: SoundId::Fanfare,
@@ -283,6 +286,7 @@ mod tests {
             cycles_infinite: true,
             cycles_count: 0,
             corner: Corner::BottomLeft,
+            skip_taskbar: false,
             work_end_sound: SoundId::Beep,
             break_end_sound: SoundId::None,
             session_end_sound: SoundId::Fanfare,
@@ -299,6 +303,7 @@ mod tests {
             "cyclesInfinite",
             "cyclesCount",
             "corner",
+            "skipTaskbar",
             "workEndSound",
             "breakEndSound",
             "sessionEndSound",

@@ -272,6 +272,8 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        // 「更新を確認」でリリースページを既定ブラウザで開く。
+        .plugin(tauri_plugin_opener::init())
         // ウィンドウのサイズ/最大化状態を永続化・復元する（位置は Corner 設定で別途決めるので除外）。
         .plugin(
             tauri_plugin_window_state::Builder::default()

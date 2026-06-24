@@ -15,6 +15,10 @@
 で配布します（タグ push で各 OS 版をビルドする CI を用意済み）。ソースからのビルドは
 [`docs/development.md`](docs/development.md) を参照してください。
 
+> **通信について**: 本アプリはオフライン完結です。唯一、設定の「更新を確認 (Check)」ボタンを押したときだけ
+> GitHub の Releases API に接続し、新しい公開版があるか確認します（その際 IP が GitHub に渡ります）。
+> 自動アップデートや常時通信はありません。
+
 ## Stack
 
 Tauri v2（Rust）+ Svelte（Vite / TypeScript）

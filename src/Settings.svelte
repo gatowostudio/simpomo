@@ -4,6 +4,7 @@
   import { hideWindow } from "./lib/window";
   import { playSound, type SoundId } from "./lib/sounds";
   import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
+  import { checkForUpdate, openReleases } from "./lib/update";
 
   // 編集中のフォーム状態。時間は UI では分で扱う（保存時に秒へ変換）。
   let workMin = $state(25);
@@ -120,12 +121,43 @@
     setBgm(focusBgm, bgmVolume / 100);
   });
 
+  // 更新確認（手動）。押したときだけ GitHub Releases（公開版）を見る。
+  type UpdateState = "idle" | "checking" | "upToDate" | "available" | "error";
+  const UPDATE_HINT = "Check GitHub for a newer version";
+  let updateState = $state<UpdateState>("idle");
+  let updateText = $state(UPDATE_HINT);
+  async function checkUpdate() {
+    updateState = "checking";
+    updateText = "Checking…";
+    try {
+      const info = await checkForUpdate();
+      if (info.newer) {
+        updateState = "available";
+        updateText = `New version ${info.latest} available (you have ${info.current})`;
+      } else if (info.latest === "") {
+        updateState = "upToDate";
+        updateText = `No published releases yet (you have ${info.current})`;
+      } else {
+        updateState = "upToDate";
+        updateText = `Up to date (${info.current})`;
+      }
+    } catch (e) {
+      updateState = "error";
+      updateText = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   // 設定ウィンドウが非アクティブ（×で隠す/別ウィンドウへ）になったら試聴を止める
   // （Close ボタン以外の閉じ方でも鳴り続けないように）。
   getCurrentWindow().onFocusChanged(({ payload: focused }) => {
     if (!focused && bgmPreviewing) {
       stopBgm();
       bgmPreviewing = false;
+    }
+    // 再表示のたびに更新確認の表示はまっさらに戻す（前回結果を引きずらない）。
+    if (focused) {
+      updateState = "idle";
+      updateText = UPDATE_HINT;
     }
   });
 
@@ -302,6 +334,22 @@
     />
   </label>
 
+  <hr />
+
+  <div class="row">
+    <span class="update" class:error={updateState === "error"}>{updateText}</span>
+    <span class="sound">
+      {#if updateState === "available"}
+        <button class="preview" title="Open releases" onclick={() => openReleases()}
+          >Open</button
+        >
+      {/if}
+      <button class="preview" onclick={checkUpdate} disabled={updateState === "checking"}
+        >Check</button
+      >
+    </span>
+  </div>
+
   <div class="footer">
     <span class="status" class:error={saveState === "error"}>{statusText}</span>
     <button onclick={close}>Close</button>
@@ -394,11 +442,13 @@
     gap: 0.5rem;
     margin-top: 0.6rem;
   }
-  .status {
+  .status,
+  .update {
     font-size: 0.78rem;
     opacity: 0.6;
   }
-  .status.error {
+  .status.error,
+  .update.error {
     color: #e5736f;
     opacity: 1;
   }

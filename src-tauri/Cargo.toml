@@ -23,3 +23,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # ウィンドウのサイズ/最大化状態を永続化・復元する。
 tauri-plugin-window-state = "2"
+# 「更新を確認」でリリースページを既定ブラウザで開くために使う。
+tauri-plugin-opener = "2"

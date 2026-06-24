@@ -1,9 +1,14 @@
+pub mod layout;
 pub mod timer;
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+
+use layout::{Corner, SizePreset};
 
 use timer::{Config, Status, Timer, TimerEvent, TimerSnapshot};
 
@@ -84,6 +89,54 @@ fn timer_skip(app: AppHandle, state: State<'_, SharedState>) {
     state.wake.notify_all();
 }
 
+/// ウィンドウのサイズプリセットと表示位置を適用する。設定（#5）から呼ぶ想定。
+/// 適用失敗をフロントが検知できるよう Result を返す。
+#[tauri::command]
+fn set_window_layout(app: AppHandle, size: SizePreset, corner: Corner) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    layout::apply(&main, size, corner).map_err(|e| e.to_string())
+}
+
+/// メインウィンドウを表示して前面に出す（トレイから呼ぶ）。
+fn show_main(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+}
+
+/// システムトレイを構築する。左クリックでウィンドウ表示、メニューで表示/終了（トレイ常駐）。
+fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    TrayIconBuilder::with_id("main")
+        .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("simpomo")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 /// 実時間の駆動（ADR-0002）。Rust 側のバックグラウンドスレッドが単調時計（`Instant`）の
 /// 差分で実経過秒を算出して `tick` に渡す。固定 `tick(1)` のドリフトとスリープ復帰のずれを避ける。
 ///
@@ -136,15 +189,34 @@ pub fn run() {
     tauri::Builder::default()
         .manage(state.clone())
         .setup(move |app| {
-            spawn_tick_loop(app.handle().clone(), state.clone());
+            let handle = app.handle();
+            setup_tray(handle)?;
+            // ウィンドウは conf で visible:false。位置・サイズを確定してから表示し、
+            // 既定位置への一瞬のジャンプ（チラつき）を避ける（#4）。
+            // 位置/サイズの「真実」は #5 の永続化ストアに置く予定。ここは未保存時の既定値。
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = layout::apply(&main, SizePreset::Medium, Corner::TopRight);
+                let _ = main.show();
+            }
+            spawn_tick_loop(handle.clone(), state.clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // トレイ常駐: ✕ や Alt+F4 では終了せず非表示にする。終了はトレイメニューから。
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             timer_snapshot,
             timer_start,
             timer_pause,
             timer_reset,
-            timer_skip
+            timer_skip,
+            set_window_layout
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -62,6 +62,10 @@
     alwaysOnTop = !alwaysOnTop;
     await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
   }
+  // トレイ常駐のため「閉じる」はウィンドウを隠すだけ（終了はトレイメニューから）。
+  async function onHide() {
+    await getCurrentWindow().hide();
+  }
 </script>
 
 <main class:break={isBreak}>
@@ -72,10 +76,16 @@
     aria-label="最前面の切り替え"
     onclick={toggleAlwaysOnTop}>📌</button
   >
+  <button class="close" title="隠す（トレイに常駐）" aria-label="隠す" onclick={onHide}
+    >✕</button
+  >
 
-  <div class="phase">{phaseLabel}</div>
-  <div class="clock">{clock}</div>
-  <div class="sets">{setLabel}</div>
+  <!-- 装飾なし(decorations:false)のため、この領域をドラッグでウィンドウ移動できるようにする。 -->
+  <div class="display" data-tauri-drag-region>
+    <div class="phase">{phaseLabel}</div>
+    <div class="clock">{clock}</div>
+    <div class="sets">{setLabel}</div>
+  </div>
 
   <div class="controls">
     <button class="primary" onclick={toggleStartPause}>
@@ -100,6 +110,14 @@
   }
   main.break {
     color: #6cc070; /* 休憩中は緑寄りに */
+  }
+
+  .display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    cursor: default;
   }
 
   .phase {
@@ -140,19 +158,32 @@
     font-weight: 600;
   }
 
-  .pin {
+  .pin,
+  .close {
     position: absolute;
     top: 0.3rem;
-    right: 0.3rem;
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.9rem;
+    color: inherit;
     opacity: 0.35;
+  }
+  .pin {
+    right: 0.3rem;
+    font-size: 0.9rem;
     filter: grayscale(1);
   }
   .pin.active {
     opacity: 0.9;
     filter: none;
+  }
+  .close {
+    left: 0.3rem;
+    font-size: 0.8rem;
+    line-height: 1;
+  }
+  .pin:hover,
+  .close:hover {
+    opacity: 0.85;
   }
 </style>

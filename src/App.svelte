@@ -122,7 +122,12 @@
   }
 </script>
 
-<main class:break={isBreak}>
+<!--
+  装飾なし(decorations:false)のため、操作ボタン以外のほぼ全域をドラッグでウィンドウ移動できるようにする。
+  Tauri はクリックした要素自体に data-tauri-drag-region が無いとドラッグしないので、背景・表示テキストの
+  各要素に付ける（ボタンには付けない＝クリックとして動く）。
+-->
+<main class:break={isBreak} data-tauri-drag-region>
   <button
     class="pin"
     class:active={alwaysOnTop}
@@ -137,11 +142,10 @@
     >⚙</button
   >
 
-  <!-- 装飾なし(decorations:false)のため、この領域をドラッグでウィンドウ移動できるようにする。 -->
   <div class="display" data-tauri-drag-region>
-    <div class="phase">{phaseLabel}</div>
-    <div class="clock">{clock}</div>
-    <div class="sets">{setLabel}</div>
+    <div class="phase" data-tauri-drag-region>{phaseLabel}</div>
+    <div class="clock" data-tauri-drag-region>{clock}</div>
+    <div class="sets" data-tauri-drag-region>{setLabel}</div>
   </div>
 
   <div class="controls">
@@ -154,14 +158,23 @@
 </main>
 
 <style>
+  /*
+    すべてのサイズをウィンドウに比例させる: main の font-size を vmin ベースにし、子は em で組む。
+    こうするとサイズプリセット（ウィンドウ寸法）に応じて文字も一緒に拡縮する。
+    上部の操作ボタンは padding-top で確保した帯に置き、中央コンテンツと重ならないようにする。
+  */
   main {
     position: relative;
     height: 100%;
+    box-sizing: border-box;
+    font-size: clamp(8px, 8.5vmin, 26px);
+    /* 上に操作ボタンの帯ぶんの余白を取り、被りを防ぐ */
+    padding: 1.7em 0.5em 0.6em;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    gap: 0.2em;
     user-select: none;
     transition: color 0.3s;
   }
@@ -173,45 +186,46 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.15rem;
+    gap: 0.1em;
     cursor: default;
   }
 
   .phase {
-    font-size: 0.8rem;
+    font-size: 0.8em;
     letter-spacing: 0.15em;
     opacity: 0.75;
   }
   .clock {
-    font-size: 2.6rem;
+    font-size: 2.6em;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    line-height: 1.05;
   }
   .sets {
-    font-size: 0.75rem;
+    font-size: 0.72em;
     opacity: 0.6;
   }
 
   .controls {
     display: flex;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
+    gap: 0.35em;
+    margin-top: 0.35em;
   }
   .controls button {
     font: inherit;
+    font-size: 0.78em;
     color: inherit;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    padding: 0.3rem 0.6rem;
+    border-radius: 0.4em;
+    padding: 0.3em 0.6em;
     cursor: pointer;
   }
   .controls button:hover {
     background: rgba(255, 255, 255, 0.16);
   }
   .controls .primary {
-    min-width: 5.5rem;
+    min-width: 5em;
     font-weight: 600;
   }
 
@@ -219,17 +233,18 @@
   .close,
   .gear {
     position: absolute;
-    top: 0.3rem;
+    top: 0.35em;
     background: none;
     border: none;
     cursor: pointer;
     color: inherit;
     opacity: 0.35;
     line-height: 1;
+    padding: 0.1em;
   }
   .pin {
-    right: 0.3rem;
-    font-size: 0.9rem;
+    right: 0.4em;
+    font-size: 0.85em;
     filter: grayscale(1);
   }
   .pin.active {
@@ -237,12 +252,12 @@
     filter: none;
   }
   .gear {
-    right: 1.7rem;
-    font-size: 0.85rem;
+    right: 1.9em;
+    font-size: 0.82em;
   }
   .close {
-    left: 0.3rem;
-    font-size: 0.8rem;
+    left: 0.4em;
+    font-size: 0.78em;
   }
   .pin:hover,
   .close:hover,

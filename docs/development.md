@@ -1,8 +1,6 @@
 # 開発手順 — simpomo
 
 Tauri v2（Rust）+ Svelte（Vite / TypeScript）構成のローカル開発メモ。
-※ プロジェクトの雛形（`pnpm create tauri-app` 等）はまだ未作成。下記コマンドは構成確定後の想定で、
-  実際のスクリプト名は雛形作成後に確定したら更新する。
 
 ## 前提ツール
 
@@ -34,6 +32,39 @@ pnpm tauri build      # 各 OS 向けインストーラ/実行ファイルを生
 
 生成物は `src-tauri/target/release/bundle/` 配下に出る（OS により .msi/.exe, .dmg, .AppImage/.deb）。
 
+## リリース（GitHub Releases 配布）
+
+各 OS のインストーラは GitHub Actions（`.github/workflows/release.yml`）でまとめてビルドし、
+GitHub Releases に**下書き**として作成する。手元（Windows）だけでは mac/Linux 版を作れないため、
+配布はこのワークフローを使う。
+
+手順:
+
+1. バージョンを更新する。**`package.json` の `version` が正**（`tauri.conf.json` は
+   `"version": "../package.json"` で自動参照する）。`src-tauri/Cargo.toml` の `version` も
+   揃えておく（クレートのバージョン。インストーラには影響しないが整合のため）。
+2. 変更をコミットする。
+3. （任意・推奨）`build-check` ワークフローを手動実行（Actions タブ → Build check → Run）して、
+   3 OS のビルドが通ることをタグ前に確認する。
+4. `package.json` と同じバージョンのタグを打って push する:
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+5. `release` ワークフローがタグと `package.json` の一致を検証し、Windows / macOS(Intel+ARM) /
+   Linux のインストーラをビルドして `simpomo v0.1.0` の**下書き Release** を作る
+   （タグとバージョンが食い違うとビルド前に失敗する）。
+6. GitHub の Releases 画面で内容を確認し、問題なければ **Publish** する。
+
+> 現在インストーラは未署名のため、初回起動時に Windows SmartScreen / macOS Gatekeeper の警告が
+> 出る。コード署名は未導入（[`spec.md`](spec.md) のオープン課題）。
+
+## CI
+
+- `ci.yml`: push / PR ごとに走る軽量ゲート（フロント型チェック + `cargo test` + `clippy`）。
+- `build-check.yml`: 手動 / PR で 3 OS のネイティブビルドが通るか確認（Release は作らない）。
+- `release.yml`: タグ push で各 OS インストーラをビルドし、下書き Release を作る。
+
 ## テスト
 
 ```sh
@@ -54,7 +85,10 @@ simpomo/
 └─ ...
 ```
 
-## 公開リポジトリでの注意
+## 公開リポジトリでの注意（機密の扱い）
 
 - 署名鍵 / updater 秘密鍵 / `.env` は **絶対にコミットしない**（`.gitignore` 済み）。
-- 同梱する通知音はロイヤリティフリー / 自作のもののみ。出典・ライセンスを記録する。
+- 将来コード署名やオートアップデータを導入する場合、鍵はリポジトリ外（OS のキーチェーン /
+  GitHub の **Secrets**）に置き、ワークフローの `env` で渡す。鍵そのものはファイルに残さない。
+- 同梱する通知音はロイヤリティフリー / 自作のもののみ。出典・ライセンスを記録する
+  （現状は Web Audio 合成のため同梱音源なし。[`credits.md`](credits.md) 参照）。

@@ -65,3 +65,5 @@
 - [ ] 通知音を 3 OS 実機で試聴し音量/音色を確認（WebView 差: Windows=WebView2 / mac=WKWebView / Linux=WebKitGTK）。
 - [ ] 「起動時自動スタート」（拡張機能）導入時、ユーザー操作前の初回再生が autoplay でブロックされない方策。
 - [ ] OS トースト通知（ウィンドウ非表示中の視覚通知）の要否。現状は通知音のみ。
+- [ ] コード署名（Windows SmartScreen / macOS Gatekeeper 対策）。現状インストーラは未署名で初回起動時に
+      警告が出る。費用（Apple Developer / Windows 証明書）が要るため MVP では見送り、導入時に鍵を Secrets 管理。

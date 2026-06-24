@@ -1,0 +1,111 @@
+# タグ（vX.Y.Z）push で各 OS のインストーラをビルドし、GitHub Releases に下書きとして公開する。
+# リリース手順は docs/development.md を参照。
+#
+# 機密について: 署名鍵 / updater 秘密鍵 / .env はリポジトリにコミットしない（.gitignore 済み）。
+# 将来コード署名やオートアップデータを入れる場合は、鍵を GitHub の Secrets に登録して env で渡す。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# tauri-action が Release を作成するために必要。
+permissions:
+  contents: write
+
+jobs:
+  # タグと中身のバージョン不一致（例: タグ v0.2.0 だが中身 0.1.0）をビルド前に弾く。
+  # インストーラの version は tauri.conf.json が package.json を自動参照するため、package.json を正とする。
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          echo "tag=$tag package.json=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $pkg. Bump the version first."
+            exit 1
+          fi
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest # Intel
+            args: "--target x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Linux は WebView(webkit2gtk 4.1) とトレイ(appindicator) の前提パッケージが要る。
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # ここで作る Release のタグ/名前。インストーラのバージョンは tauri.conf.json(=package.json) の version。
+          tagName: ${{ github.ref_name }}
+          releaseName: "simpomo ${{ github.ref_name }}"
+          releaseBody: |
+            ## ダウンロード
+            - Windows: `.msi` または `-setup.exe`
+            - macOS: `.dmg`（Apple Silicon / Intel）
+            - Linux: `.AppImage` または `.deb`
+
+            > 現在インストーラは**未署名**です。初回起動時に Windows SmartScreen や
+            > macOS Gatekeeper の警告が出る場合があります（Windows: 「詳細情報」→「実行」、
+            > macOS: 右クリック→「開く」で起動できます）。
+          # 下書きで作成 → 内容を確認してから手動で publish する。
+          releaseDraft: true
+          # プレリリースタグ（例 v0.2.0-rc.1）は prerelease 扱いにする。
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}

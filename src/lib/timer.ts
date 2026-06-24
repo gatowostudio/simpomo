@@ -1,5 +1,5 @@
 // Rust コア（タイマー状態機械）への薄いブリッジ（ADR-0002: フロントは表示層）。
-// 操作は invoke で送り、状態は timer://snapshot イベントの単一経路で受け取る。tick の駆動は Rust 側。
+// 操作は invoke で送り、状態は timer-snapshot イベントの単一経路で受け取る。tick の駆動は Rust 側。
 //
 // 型の同期契約: 下記の型は src-tauri/src/timer.rs の手書きミラー。Rust 側のフィールド名や
 // serde rename（camelCase）を変えたら本ファイルも必ず同期すること。型生成（ts-rs/tauri-specta 等）は
@@ -9,8 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // イベント名・コマンド名は1箇所に集約（タイポは静かに購読/呼び出し失敗になるため）。
-const EVENT_SNAPSHOT = "timer://snapshot";
-const EVENT_TIMER_EVENTS = "timer://event";
+// Rust(lib.rs) と一致させる文字列契約。
+const EVENT_SNAPSHOT = "timer-snapshot";
+const EVENT_TIMER_EVENTS = "timer-events";
 
 export type Phase = "work" | "break";
 export type Status = "idle" | "running" | "paused";

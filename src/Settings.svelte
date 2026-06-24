@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as settings from "./lib/settings";
+  import { hideWindow } from "./lib/window";
   import { playSound, type SoundId } from "./lib/sounds";
 
   // 編集中のフォーム状態。時間は UI では分で扱う（保存時に秒へ変換）。
@@ -62,7 +62,7 @@
       lastApplied = JSON.stringify(buildSettings());
       loaded = true;
     } catch (e) {
-      errorMsg = `設定の読み込みに失敗しました: ${e}`;
+      errorMsg = `Failed to load settings: ${e}`;
       saveState = "error";
     }
   }
@@ -75,7 +75,7 @@
       lastApplied = JSON.stringify(payload);
       saveState = "saved";
     } catch (e) {
-      errorMsg = `保存に失敗しました: ${e}`;
+      errorMsg = `Failed to save: ${e}`;
       saveState = "error";
     }
   }
@@ -89,26 +89,27 @@
     debounceId = setTimeout(() => apply(payload), 350);
   });
 
+  // conf 定義済みウィンドウなので破棄せず隠す（再度開ける）。
   async function close() {
-    await getCurrentWindow().close();
+    await hideWindow();
   }
 
   const statusText = $derived(
     saveState === "saving"
-      ? "保存中…"
+      ? "Saving…"
       : saveState === "saved"
-        ? "✓ 反映しました"
+        ? "✓ Saved"
         : saveState === "error"
           ? errorMsg
-          : "変更すると自動で反映されます",
+          : "Changes are saved automatically",
   );
 </script>
 
 <main>
-  <h1>設定</h1>
+  <h1>Settings</h1>
 
   <label class="row">
-    <span>作業時間（分）</span>
+    <span>Focus (min)</span>
     <input
       type="number"
       min={settings.MIN_PHASE_MIN}
@@ -118,7 +119,7 @@
   </label>
 
   <label class="row">
-    <span>休憩時間（分）</span>
+    <span>Break (min)</span>
     <input
       type="number"
       min={settings.MIN_PHASE_MIN}
@@ -128,12 +129,12 @@
   </label>
 
   <label class="row checkbox">
-    <span>無限に繰り返す</span>
+    <span>Loop forever</span>
     <input type="checkbox" bind:checked={cyclesInfinite} />
   </label>
 
   <label class="row">
-    <span>サイクル数（0=1セットで停止）</span>
+    <span>Cycles (0 = stop after one)</span>
     <input
       type="number"
       min="0"
@@ -144,7 +145,7 @@
   </label>
 
   <label class="row">
-    <span>表示位置</span>
+    <span>Position</span>
     <select bind:value={corner}>
       {#each settings.CORNER_OPTIONS as opt}
         <option value={opt.value}>{opt.label}</option>
@@ -153,7 +154,7 @@
   </label>
 
   <label class="row">
-    <span>ウィンドウサイズ</span>
+    <span>Window size</span>
     <select bind:value={size}>
       {#each settings.SIZE_OPTIONS as opt}
         <option value={opt.value}>{opt.label}</option>
@@ -162,7 +163,7 @@
   </label>
 
   <label class="row">
-    <span>作業終了音</span>
+    <span>Focus end sound</span>
     <span class="sound">
       <select bind:value={workEndSound}>
         {#each settings.SOUND_OPTIONS as opt}
@@ -171,15 +172,15 @@
       </select>
       <button
         class="preview"
-        title="試聴"
-        aria-label="作業終了音を試聴"
+        title="Preview"
+        aria-label="Preview focus end sound"
         onclick={() => playSound(workEndSound, volume / 100)}>▶</button
       >
     </span>
   </label>
 
   <label class="row">
-    <span>休憩終了音</span>
+    <span>Break end sound</span>
     <span class="sound">
       <select bind:value={breakEndSound}>
         {#each settings.SOUND_OPTIONS as opt}
@@ -188,15 +189,15 @@
       </select>
       <button
         class="preview"
-        title="試聴"
-        aria-label="休憩終了音を試聴"
+        title="Preview"
+        aria-label="Preview break end sound"
         onclick={() => playSound(breakEndSound, volume / 100)}>▶</button
       >
     </span>
   </label>
 
   <label class="row">
-    <span>完了音（全セット終了）</span>
+    <span>Session end sound</span>
     <span class="sound">
       <select bind:value={sessionEndSound}>
         {#each settings.SOUND_OPTIONS as opt}
@@ -205,15 +206,15 @@
       </select>
       <button
         class="preview"
-        title="試聴"
-        aria-label="完了音を試聴"
+        title="Preview"
+        aria-label="Preview session end sound"
         onclick={() => playSound(sessionEndSound, volume / 100)}>▶</button
       >
     </span>
   </label>
 
   <label class="row">
-    <span>音量（{volume}）</span>
+    <span>Volume ({volume})</span>
     <input
       type="range"
       min="0"
@@ -225,7 +226,7 @@
 
   <div class="footer">
     <span class="status" class:error={saveState === "error"}>{statusText}</span>
-    <button onclick={close}>閉じる</button>
+    <button onclick={close}>Close</button>
   </div>
 </main>
 

@@ -15,6 +15,9 @@ export type { SoundId };
 /** 設定ウィンドウのラベル。Rust(open_settings) と main.ts の出し分けで一致させる文字列契約。 */
 export const SETTINGS_WINDOW_LABEL = "settings";
 
+/** 設定変更イベント名。Rust(lib.rs EVENT_SETTINGS) と一致させる。 */
+const EVENT_SETTINGS_CHANGED = "settings-changed";
+
 // 時間換算・値域の定数（Rust settings.rs の MIN/MAX_PHASE_SECS, MAX_CYCLES と対応させる）。
 export const SECS_PER_MINUTE = 60;
 export const MIN_PHASE_MIN = 1;
@@ -63,32 +66,32 @@ export const openSettings = (): Promise<void> => invoke("open_settings");
 export const onSettingsChanged = (
   cb: (settings: AppSettings) => void,
 ): Promise<UnlistenFn> =>
-  listen<AppSettings>("settings://changed", (e) => cb(e.payload));
+  listen<AppSettings>(EVENT_SETTINGS_CHANGED, (e) => cb(e.payload));
 
 // ラベルは Record で全 variant の網羅を型強制する（layout.rs の enum に variant を足したら
 // ここがコンパイルエラーになり、同期漏れを防ぐ）。表示順は定義順。
 const SIZE_LABELS: Record<SizePreset, string> = {
-  xsmall: "極小",
-  small: "小",
-  medium: "中",
-  large: "大",
-  xlarge: "特大",
-  xxlarge: "最大",
+  xsmall: "XS",
+  small: "S",
+  medium: "M",
+  large: "L",
+  xlarge: "XL",
+  xxlarge: "XXL",
 };
 const CORNER_LABELS: Record<Corner, string> = {
-  topRight: "右上",
-  topLeft: "左上",
-  bottomRight: "右下",
-  bottomLeft: "左下",
+  topRight: "Top right",
+  topLeft: "Top left",
+  bottomRight: "Bottom right",
+  bottomLeft: "Bottom left",
 };
 
 const SOUND_LABELS: Record<SoundId, string> = {
-  none: "なし",
-  beep: "ビープ",
-  chime: "チャイム",
-  ding: "ディン",
-  blip: "ブリップ",
-  fanfare: "ファンファーレ",
+  none: "None",
+  beep: "Beep",
+  chime: "Chime",
+  ding: "Ding",
+  blip: "Blip",
+  fanfare: "Fanfare",
 };
 
 /** 音量の上限（Rust settings.rs MAX_VOLUME と対応）。 */

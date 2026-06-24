@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as timer from "./lib/timer";
   import {
     openSettings,
@@ -8,6 +7,7 @@
     onSettingsChanged,
     SECS_PER_MINUTE,
   } from "./lib/settings";
+  import { setAlwaysOnTop, hideWindow } from "./lib/window";
   import { playSound, soundsForEvents, type SoundId } from "./lib/sounds";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
@@ -21,7 +21,7 @@
 
   const isRunning = $derived(snap?.status === "running");
   const isBreak = $derived(snap?.phase === "break");
-  const phaseLabel = $derived(isBreak ? "休憩" : "作業");
+  const phaseLabel = $derived(isBreak ? "BREAK" : "FOCUS");
 
   // セット表示: 「現在/総数」。無限は ∞。
   const setLabel = $derived.by(() => {
@@ -54,7 +54,7 @@
       if (snap === null) snap = s;
     });
 
-    // 通知音の選択・音量を読み込み、設定変更（settings://changed）に追従する。
+    // 通知音の選択・音量を読み込み、設定変更（settings-changed）に追従する。
     const applySoundSettings = (s: {
       workEndSound: SoundId;
       breakEndSound: SoundId;
@@ -100,12 +100,17 @@
     await timer.skip();
   }
   async function toggleAlwaysOnTop() {
-    alwaysOnTop = !alwaysOnTop;
-    await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
+    const next = !alwaysOnTop;
+    try {
+      await setAlwaysOnTop(next);
+      alwaysOnTop = next; // 実際に適用できたときだけ表示状態を更新する
+    } catch (e) {
+      console.error("failed to toggle always-on-top", e);
+    }
   }
   // トレイ常駐のため「閉じる」はウィンドウを隠すだけ（終了はトレイメニューから）。
   async function onHide() {
-    await getCurrentWindow().hide();
+    await hideWindow();
   }
   async function onOpenSettings() {
     // 連打などで生成が競合しても UI を壊さないよう失敗は握りつぶす。
@@ -121,14 +126,15 @@
   <button
     class="pin"
     class:active={alwaysOnTop}
-    title={alwaysOnTop ? "最前面: ON" : "最前面: OFF"}
-    aria-label="最前面の切り替え"
+    title={alwaysOnTop ? "Always on top: ON" : "Always on top: OFF"}
+    aria-label="Toggle always on top"
     onclick={toggleAlwaysOnTop}>📌</button
   >
-  <button class="close" title="隠す（トレイに常駐）" aria-label="隠す" onclick={onHide}
+  <button class="close" title="Hide to tray" aria-label="Hide" onclick={onHide}
     >✕</button
   >
-  <button class="gear" title="設定" aria-label="設定" onclick={onOpenSettings}>⚙</button
+  <button class="gear" title="Settings" aria-label="Settings" onclick={onOpenSettings}
+    >⚙</button
   >
 
   <!-- 装飾なし(decorations:false)のため、この領域をドラッグでウィンドウ移動できるようにする。 -->
@@ -140,10 +146,10 @@
 
   <div class="controls">
     <button class="primary" onclick={toggleStartPause}>
-      {isRunning ? "一時停止" : "開始"}
+      {isRunning ? "Pause" : "Start"}
     </button>
-    <button onclick={onReset} title="リセット" aria-label="リセット">⟲</button>
-    <button onclick={onSkip} title="スキップ" aria-label="スキップ">⏭</button>
+    <button onclick={onReset} title="Reset" aria-label="Reset">⟲</button>
+    <button onclick={onSkip} title="Skip" aria-label="Skip">⏭</button>
   </div>
 </main>
 

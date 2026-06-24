@@ -14,4 +14,6 @@ simpomo の通知音は**音源ファイルを同梱していません**。す�
 
 ## アイコン
 
-`src-tauri/icons/` は `create-tauri-app` 生成の既定アイコン。差し替える場合は出典をここに追記する。
+アプリアイコンは**自作**のトマト（ポモドーロ）モチーフ。ソースは `src-tauri/icons/app-icon.svg`。
+`src-tauri/icons/` 配下の各 PNG / `.ico` / `.icns` はこの SVG から `tauri icon` で生成している
+（再生成手順は `docs/development.md`）。第三者の著作物は含まない。

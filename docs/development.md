@@ -59,6 +59,17 @@ GitHub Releases に**下書き**として作成する。手元（Windows）だ�
 > 現在インストーラは未署名のため、初回起動時に Windows SmartScreen / macOS Gatekeeper の警告が
 > 出る。コード署名は未導入（[`spec.md`](spec.md) のオープン課題）。
 
+## アイコンの再生成
+
+アプリアイコンは `src-tauri/icons/app-icon.svg`（自作トマト）を source に生成している。SVG を編集したら
+次で全サイズ（PNG / .ico / .icns）を作り直す:
+
+```sh
+pnpm tauri icon src-tauri/icons/app-icon.svg
+```
+
+（モバイル用 `android/` `ios/` も生成されるが、本プロジェクトはデスクトップのみなので削除してよい。）
+
 ## CI
 
 - `ci.yml`: push / PR ごとに走る軽量ゲート（フロント型チェック + `cargo test` + `clippy`）。

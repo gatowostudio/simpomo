@@ -29,12 +29,21 @@ ADR-0001 で「Tauri v2 + Svelte」を採用した。実装着手（#1 雛形）
   同一ウィンドウ内で両立しにくいため、設定は別の `WebviewWindow` として開く。
 
 実装上の含意:
-- 設定ウィンドウは #5 で追加した。`capabilities` の `windows` を `["main", "settings"]` に拡張済み。
+- 設定ウィンドウは `tauri.conf.json` に**事前定義**する（`label: "settings"`, `visible: false`）。
+  当初は実行時生成（`WebviewWindowBuilder`）だったが、`WebviewUrl::App("index.html")` での
+  読み込みが空白になる事象があったため、メインと同じ標準のウィンドウ読み込み経路に揃えて
+  事前定義に変更した（実機バグ修正での判断）。`open_settings` は表示するだけ、閉じる操作は破棄せず
+  `hide`（`CloseRequested` を横取り）して、再表示で開き直せるようにする。
+  トレードオフ: 設定 webview を常時保持する分メモリを使う（軽量要件との緊張。許容と判断）。
+- `capabilities` の `windows` は `["main", "settings"]`。ウィンドウ操作（最前面トグル・hide・設定表示）は
+  JS の window API ではなく Rust コマンド（`set_always_on_top` / `hide_window` / `open_settings`）に集約し、
+  確実に効くようにした（JS 経由は環境により効かないことがあったため）。
 - 設定の「単一の真実」は永続化ストア（`settings.json`）。設定ウィンドウは値を書き、Rust が
   **権威的に** タイマー（`set_config`）とメインウィンドウ（`layout::apply`）へ直接適用する。
-  表示の更新は `timer://snapshot` で、それに乗らない設定変更は `settings://changed` イベントで
-  全ウィンドウへ通知する（#6 の通知音選択などが購読）。値の検証は Rust（`AppSettings::sanitized`）が
-  権威で、保存前に必ず正規化する（フロントの clamp は UX 用で信頼境界ではない）。
+  表示の更新は `timer-snapshot` で、それに乗らない設定変更は `settings-changed` イベントで
+  通知する（#6 の通知音選択などが購読）。イベント名は `:` や `/` を含めない単純な形にする。
+  値の検証は Rust（`AppSettings::sanitized`）が権威で、保存前に必ず正規化する（フロントの clamp は
+  UX 用で信頼境界ではない）。
 - 設定はライブ反映（明示保存ボタンを置かず、変更を即適用）にした。WYSIWYG で位置/サイズを選べ、
   「保存し忘れて閉じる」事故を構造的に無くすため（#5 レビューでの判断）。
 

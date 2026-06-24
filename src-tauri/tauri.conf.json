@@ -18,6 +18,16 @@
         "height": 150,
         "alwaysOnTop": true,
         "decorations": false,
+        "resizable": false,
+        "maximizable": false,
+        "visible": false
+      },
+      {
+        "label": "settings",
+        "title": "simpomo Settings",
+        "width": 360,
+        "height": 480,
+        "resizable": true,
         "visible": false
       }
     ],

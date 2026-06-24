@@ -7,9 +7,7 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{
-    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
-};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 use layout::{Corner, SizePreset};
 use settings::AppSettings;
@@ -29,25 +27,27 @@ struct Shared {
 
 type SharedState = Arc<Shared>;
 
-const EVENT_SNAPSHOT: &str = "timer://snapshot";
-const EVENT_TIMER_EVENTS: &str = "timer://event";
+// イベント名はフロント（timer.ts / settings.ts）と一致させる文字列契約。
+// 単純な英数字 + ハイフンにする（":" や "/" を含む名前はトラブルの元になりうる）。
+const EVENT_SNAPSHOT: &str = "timer-snapshot";
+const EVENT_TIMER_EVENTS: &str = "timer-events";
 /// 設定変更を全ウィンドウへ通知する（snapshot に乗らない設定を #6 等が購読する）。
-const EVENT_SETTINGS: &str = "settings://changed";
+const EVENT_SETTINGS: &str = "settings-changed";
 
 /// ウィンドウラベル。フロント（main.ts / settings.ts）と一致させる文字列契約。
 const MAIN_LABEL: &str = "main";
 const SETTINGS_LABEL: &str = "settings";
 
-// snapshot / フェーズ境界イベントはメインウィンドウだけが消費する（通知音もメインのみ）。
-// 設定ウィンドウへ配らないことで、将来リスナを共通化しても二重再生が起きない。
+// snapshot / フェーズ境界イベントはブロードキャストで送る（フロントの listen() に確実に届く）。
+// 設定ウィンドウはこれらを購読しないので二重処理にはならない。
 fn emit_snapshot(app: &AppHandle, snapshot: TimerSnapshot) {
     // 送信失敗（ウィンドウ破棄直後など）は致命ではないので握りつぶす。
-    let _ = app.emit_to(MAIN_LABEL, EVENT_SNAPSHOT, snapshot);
+    let _ = app.emit(EVENT_SNAPSHOT, snapshot);
 }
 
 fn emit_events(app: &AppHandle, events: &[TimerEvent]) {
     if !events.is_empty() {
-        let _ = app.emit_to(MAIN_LABEL, EVENT_TIMER_EVENTS, events);
+        let _ = app.emit(EVENT_TIMER_EVENTS, events);
     }
 }
 
@@ -146,21 +146,29 @@ fn save_settings(
     apply_main_layout(&app, settings.size, settings.corner)
 }
 
-/// 設定ウィンドウを開く（無ければ生成、あれば前面化）。別ウィンドウ方式（ADR-0002）。
+/// 設定ウィンドウを表示する（conf で定義済みの非表示ウィンドウを見せる）。別ウィンドウ方式（ADR-0002）。
 #[tauri::command]
 fn open_settings(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window(SETTINGS_LABEL) {
-        let _ = win.show();
-        let _ = win.set_focus();
-        return Ok(());
-    }
-    WebviewWindowBuilder::new(&app, SETTINGS_LABEL, WebviewUrl::App("index.html".into()))
-        .title("simpomo 設定")
-        .inner_size(360.0, 480.0)
-        .resizable(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let win = app
+        .get_webview_window(SETTINGS_LABEL)
+        .ok_or_else(|| "settings window not found".to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+    let _ = win.unminimize();
+    let _ = win.set_focus();
     Ok(())
+}
+
+/// 呼び出し元ウィンドウの最前面表示を切り替える（メインのピンボタンから）。
+/// JS の window API ではなく Rust から直接制御し、確実に効くようにする。
+#[tauri::command]
+fn set_always_on_top(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    window.set_always_on_top(on).map_err(|e| e.to_string())
+}
+
+/// 呼び出し元ウィンドウを隠す（メインの ✕ / 設定の Close から）。トレイ常駐のため終了はしない。
+#[tauri::command]
+fn hide_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.hide().map_err(|e| e.to_string())
 }
 
 /// メインウィンドウを表示して前面に出す（トレイから呼ぶ）。
@@ -188,13 +196,16 @@ fn apply_loaded_settings(app: &AppHandle, state: &SharedState) {
 
 /// システムトレイを構築する。左クリックでウィンドウ表示、メニューで表示/終了（トレイ常駐）。
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-    TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("simpomo")
+    let mut builder = TrayIconBuilder::with_id("main").tooltip("simpomo");
+    // アイコンは conf で定義済みだが、念のため取得できたときだけ設定する（panic を避ける）。
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -275,10 +286,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // トレイ常駐: メインの ✕ や Alt+F4 では終了せず非表示にする。終了はトレイメニューから。
-            // 設定ウィンドウは通常どおり閉じる（label 判定で除外）。
+            // トレイ常駐: ✕ や Alt+F4 では終了せず非表示にする（終了はトレイメニューから）。
+            // 設定ウィンドウも破棄せず隠す（conf で定義済みなので再表示で開き直せる）。
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == MAIN_LABEL {
+                let label = window.label();
+                if label == MAIN_LABEL || label == SETTINGS_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -293,7 +305,9 @@ pub fn run() {
             set_window_layout,
             get_settings,
             save_settings,
-            open_settings
+            open_settings,
+            set_always_on_top,
+            hide_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

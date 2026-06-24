@@ -15,7 +15,8 @@
         "label": "main",
         "title": "simpomo",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "alwaysOnTop": true
       }
     ],
     "security": {

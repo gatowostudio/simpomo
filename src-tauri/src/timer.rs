@@ -123,6 +123,10 @@ pub enum TimerEvent {
 }
 
 /// フロントへ渡す表示用スナップショット。
+///
+/// `camelCase` のフィールド名はフロント（`src/lib/timer.ts` の手書きミラー）との契約。
+/// フィールド名や rename を変えたら timer.ts も必ず同期すること
+/// （`snapshot_serializes_to_camel_case_keys` テストがキー名のドリフトを検出する）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimerSnapshot {
@@ -562,6 +566,28 @@ mod tests {
                 .total_sets,
             None
         );
+    }
+
+    #[test]
+    fn snapshot_serializes_to_camel_case_keys() {
+        // フロント timer.ts はこれらのキー名に依存する。Rust 側を変えたら timer.ts も同期すること。
+        let t = Timer::new(config(1, 1, CycleSetting::Finite(2)));
+        let json = serde_json::to_value(t.snapshot()).unwrap();
+        let obj = json.as_object().expect("snapshot is a JSON object");
+        for key in [
+            "phase",
+            "status",
+            "remainingSecs",
+            "setIndex",
+            "totalSets",
+            "workSecs",
+            "breakSecs",
+        ] {
+            assert!(obj.contains_key(key), "missing snapshot key: {key}");
+        }
+        // フェーズ/状態は lowercase でシリアライズされる契約。
+        assert_eq!(json["phase"], "work");
+        assert_eq!(json["status"], "idle");
     }
 
     #[test]

@@ -1,16 +1,151 @@
 pub mod timer;
 
-// 雛形(#1)の疎通確認用コマンド。フロント↔バックエンドの invoke が通ることだけを確認する。
-// #3 でタイマー用コマンド/イベントに接続する際に削除する。
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, Emitter, State};
+
+use timer::{Config, Status, Timer, TimerEvent, TimerSnapshot};
+
+/// タイマー状態と、tick 駆動スレッドを起こすための条件変数をまとめた共有状態。
+///
+/// 並行性の不変条件: `timer` のロックを保持している間は panic しうる処理を呼ばない
+/// （Timer 操作は純粋で panic せず、emit はエラーを握りつぶす）。よって Mutex は poison せず、
+/// `lock().unwrap()` は安全。
+struct Shared {
+    timer: Mutex<Timer>,
+    /// 稼働状態の変化を tick スレッドへ通知する。start で park 中のスレッドを起こす。
+    wake: Condvar,
+}
+
+type SharedState = Arc<Shared>;
+
+const EVENT_SNAPSHOT: &str = "timer://snapshot";
+const EVENT_TIMER_EVENTS: &str = "timer://event";
+
+fn emit_snapshot(app: &AppHandle, snapshot: TimerSnapshot) {
+    // 送信失敗（ウィンドウ破棄直後など）は致命ではないので握りつぶす。
+    let _ = app.emit(EVENT_SNAPSHOT, snapshot);
+}
+
+fn emit_events(app: &AppHandle, events: &[TimerEvent]) {
+    if !events.is_empty() {
+        let _ = app.emit(EVENT_TIMER_EVENTS, events);
+    }
+}
+
+// コマンドは状態を「戻り値」では返さない。更新は必ず emit(EVENT_SNAPSHOT) の単一経路で流す
+// （戻り値と emit の二重経路だと到着順でフロント表示が巻き戻るレースが起きるため）。
+// mutate と emit は同一ロック区間で行い、tick スレッドの emit と順序が入れ替わらないようにする。
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn timer_snapshot(state: State<'_, SharedState>) -> TimerSnapshot {
+    state.timer.lock().unwrap().snapshot()
+}
+
+#[tauri::command]
+fn timer_start(app: AppHandle, state: State<'_, SharedState>) {
+    {
+        let mut timer = state.timer.lock().unwrap();
+        timer.start();
+        emit_snapshot(&app, timer.snapshot());
+    }
+    state.wake.notify_all(); // park 中の tick スレッドを起こす
+}
+
+#[tauri::command]
+fn timer_pause(app: AppHandle, state: State<'_, SharedState>) {
+    {
+        let mut timer = state.timer.lock().unwrap();
+        timer.pause();
+        emit_snapshot(&app, timer.snapshot());
+    }
+    state.wake.notify_all();
+}
+
+#[tauri::command]
+fn timer_reset(app: AppHandle, state: State<'_, SharedState>) {
+    {
+        let mut timer = state.timer.lock().unwrap();
+        timer.reset();
+        emit_snapshot(&app, timer.snapshot());
+    }
+    state.wake.notify_all();
+}
+
+#[tauri::command]
+fn timer_skip(app: AppHandle, state: State<'_, SharedState>) {
+    {
+        let mut timer = state.timer.lock().unwrap();
+        let events = timer.skip();
+        emit_events(&app, &events);
+        emit_snapshot(&app, timer.snapshot());
+    }
+    state.wake.notify_all();
+}
+
+/// 実時間の駆動（ADR-0002）。Rust 側のバックグラウンドスレッドが単調時計（`Instant`）の
+/// 差分で実経過秒を算出して `tick` に渡す。固定 `tick(1)` のドリフトとスリープ復帰のずれを避ける。
+///
+/// アイドル時 CPU を最小化するため、非稼働中（Idle/Paused）は条件変数で park し、
+/// CPU を消費しない。start の `notify_all` で起き、稼働中のみ毎秒 tick して emit する。
+fn spawn_tick_loop(app: AppHandle, state: SharedState) {
+    std::thread::spawn(move || {
+        let mut last = Instant::now();
+        let mut timer = state.timer.lock().unwrap();
+        loop {
+            // 非稼働中は wake されるまで park（この間ロックは解放され CPU はゼロ）。
+            while timer.snapshot().status != Status::Running {
+                timer = state.wake.wait(timer).unwrap();
+                // 稼働再開の起点を切り直す（park 中の経過を取り込んで過剰進行するのを防ぐ）。
+                last = Instant::now();
+            }
+            // 稼働中: 最大 1 秒待つ。pause/skip 等の通知で早く起きる。
+            let (guard, _timeout) = state
+                .wake
+                .wait_timeout(timer, Duration::from_secs(1))
+                .unwrap();
+            timer = guard;
+            if timer.snapshot().status != Status::Running {
+                continue; // 待機中に停止された → park へ戻る
+            }
+            let now = Instant::now();
+            // スリープ復帰で巨大になりうるので飽和させる（u32 への wrap を防ぐ）。
+            let elapsed = now.duration_since(last).as_secs().min(u32::MAX as u64) as u32;
+            // 端数（1 秒未満）は次回へ持ち越し、長期ドリフトを防ぐ。
+            last += Duration::from_secs(elapsed as u64);
+            if elapsed == 0 {
+                continue;
+            }
+            let events = timer.tick(elapsed);
+            let snapshot = timer.snapshot();
+            // ロック保持中に emit し、コマンド由来の emit と順序が入れ替わらないようにする。
+            emit_events(&app, &events);
+            emit_snapshot(&app, snapshot);
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let state: SharedState = Arc::new(Shared {
+        timer: Mutex::new(Timer::new(Config::default())),
+        wake: Condvar::new(),
+    });
+
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(state.clone())
+        .setup(move |app| {
+            spawn_tick_loop(app.handle().clone(), state.clone());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            timer_snapshot,
+            timer_start,
+            timer_pause,
+            timer_reset,
+            timer_skip
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -83,6 +83,9 @@ export interface SoundChoices {
  * - セッション完了が含まれる場合は完了音のみ（最終休憩終了音より完了を優先）。
  * - それ以外は、含まれていれば作業終了音・休憩終了音をそれぞれ 1 回ずつ。
  * - スリープ復帰などで同種イベントが複数来ても各 1 回に畳み、連打しない。
+ *
+ * 双子の notify.ts `notificationForEvents` は方針が**意図的に異なる**: トースト連発を避けるため
+ * 音は複数返しうるのに対しトーストは「最後の境界」1 件のみに畳む。両者を揃えないこと。
  */
 export function soundsForEvents(
   events: TimerEvent[],

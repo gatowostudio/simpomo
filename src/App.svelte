@@ -13,6 +13,8 @@
   import { setAlwaysOnTop, hideWindow, startResize } from "./lib/window";
   import { playSound, soundsForEvents, type SoundId } from "./lib/sounds";
   import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
+  import { unlockAudioOnUserGesture } from "./lib/audio";
+  import { notifyIfHidden, ensureNotificationPermission } from "./lib/notify";
   import { textColorFor } from "./lib/color";
 
   let snap = $state<timer.TimerSnapshot | null>(null);
@@ -22,6 +24,7 @@
   let volume = $state(70);
   let focusBgm = $state<BgmId>("none");
   let bgmVolume = $state(25);
+  let osNotifications = $state(true);
   let focusBgColor = $state(DEFAULT_FOCUS_BG);
   let breakBgColor = $state(DEFAULT_BREAK_BG);
   // 既定 ON は tauri.conf.json の alwaysOnTop: true と一致させている（spec の中核体験）。
@@ -53,6 +56,9 @@
   }
 
   onMount(() => {
+    // 起動時自動スタート（#21）で音が出ない事故を避け、最初の操作で AudioContext を resume する。
+    unlockAudioOnUserGesture();
+
     const unlisteners: Array<() => void> = [];
     // disposed: listen の Promise が解決する前に unmount された場合に listener を取りこぼさない。
     let disposed = false;
@@ -74,10 +80,17 @@
       volume = s.volume;
       focusBgm = s.focusBgm;
       bgmVolume = s.bgmVolume;
+      osNotifications = s.osNotifications;
       focusBgColor = s.focusBgColor;
       breakBgColor = s.breakBgColor;
     };
-    getSettings().then(applySoundSettings).catch(() => {});
+    getSettings()
+      .then((s) => {
+        applySoundSettings(s);
+        // 通知が有効なら、可視な起動時のうちに権限を確保しておく（隠れてから要求しないため）。
+        if (s.osNotifications) void ensureNotificationPermission();
+      })
+      .catch(() => {});
     track(onSettingsChanged(applySoundSettings));
 
     // フェーズ境界で通知音を鳴らす。完了時は完了音、catch-up（複数境界）は種類ごと 1 回に畳む。
@@ -91,6 +104,8 @@
         })) {
           playSound(id, volume / 100);
         }
+        // トレイに隠している間は OS トーストでも知らせる（#20）。表示中は何もしない。
+        if (osNotifications) void notifyIfHidden(events);
       }),
     );
 

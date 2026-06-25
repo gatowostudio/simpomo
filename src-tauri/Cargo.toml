@@ -25,3 +25,9 @@ serde_json = "1"
 tauri-plugin-window-state = "2"
 # 「更新を確認」でリリースページを既定ブラウザで開くために使う。
 tauri-plugin-opener = "2"
+# 二重起動を防ぎ、2 回目起動時は既存ウィンドウを前面化する（#18）。
+tauri-plugin-single-instance = "2"
+# 非表示中のフェーズ境界を OS トースト通知で知らせる（#20）。
+tauri-plugin-notification = "2"
+# OS スタートアップ登録（ログイン時に自動起動）の ON/OFF（#21）。
+tauri-plugin-autostart = "2"

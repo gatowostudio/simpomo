@@ -87,10 +87,14 @@ pub struct AppSettings {
     pub cycles_infinite: bool,
     /// 自動継続するセット数。0 = 1 セットで停止（既定）。`cycles_infinite` が false のとき有効。
     pub cycles_count: u32,
-    /// 初期表示位置（どの隅に出すか）。サイズは端でリサイズし plugin が永続化する。
+    /// 初期/リセット位置。隅を選ぶとそこへ移動し、以降ドラッグした位置/サイズは plugin が永続化する。
     pub corner: Corner,
     /// タスクバーに出さず、システムトレイのみに常駐するか（既定 true＝邪魔にならない）。
     pub skip_taskbar: bool,
+    /// 起動時に自動でタイマーを開始するか（#21。既定 false）。
+    /// OS スタートアップ登録（ログイン時の自動起動）は OS 側が真実なので本設定には持たず、
+    /// autostart プラグイン（フロントの isEnabled/enable/disable）で扱う。
+    pub autostart_timer: bool,
     /// 作業フェーズ終了時の通知音。
     pub work_end_sound: SoundId,
     /// 休憩フェーズ終了時の通知音。
@@ -99,6 +103,9 @@ pub struct AppSettings {
     pub session_end_sound: SoundId,
     /// 通知音の音量（0〜100）。
     pub volume: u8,
+    /// トレイに隠している間、フェーズ境界を OS トースト通知でも知らせるか（#20）。
+    /// 既定 false（オプトイン）。「邪魔にならない」方針に従い、欲しい人だけ設定で有効化する。
+    pub os_notifications: bool,
     /// フォーカス中に流す BGM（休憩中は止める）。
     pub focus_bgm: BgmId,
     /// BGM の音量（0〜100）。
@@ -119,10 +126,12 @@ impl Default for AppSettings {
             cycles_count: 0,
             corner: Corner::TopRight,
             skip_taskbar: true,
+            autostart_timer: false,
             work_end_sound: SoundId::Chime,
             break_end_sound: SoundId::Ding,
             session_end_sound: SoundId::Fanfare,
             volume: 70,
+            os_notifications: false,
             focus_bgm: BgmId::None,
             bgm_volume: 25,
             focus_bg_color: DEFAULT_FOCUS_BG.to_string(),
@@ -149,7 +158,8 @@ impl AppSettings {
             // 不正な色（#rrggbb 以外）は既定色へ戻す（Rust が値検証の権威）。
             focus_bg_color: sanitize_color(&self.focus_bg_color, DEFAULT_FOCUS_BG),
             break_bg_color: sanitize_color(&self.break_bg_color, DEFAULT_BREAK_BG),
-            // 残り（cycles_infinite / corner / 各 sound / focus_bgm）は素通し。
+            // 上記以外（各 bool トグル・corner・各 sound・focus_bgm 等、値域の概念が無いもの）は素通し。
+            // ここを列挙台帳にすると新フィールド追加のたびにドリフトするので、性質で説明する。
             ..self
         }
     }
@@ -287,10 +297,12 @@ mod tests {
             cycles_count: 0,
             corner: Corner::BottomLeft,
             skip_taskbar: false,
+            autostart_timer: true,
             work_end_sound: SoundId::Beep,
             break_end_sound: SoundId::None,
             session_end_sound: SoundId::Fanfare,
             volume: 55,
+            os_notifications: false,
             focus_bgm: BgmId::Rain,
             bgm_volume: 35,
             focus_bg_color: "#000000".to_string(),
@@ -304,10 +316,12 @@ mod tests {
             "cyclesCount",
             "corner",
             "skipTaskbar",
+            "autostartTimer",
             "workEndSound",
             "breakEndSound",
             "sessionEndSound",
             "volume",
+            "osNotifications",
             "focusBgm",
             "bgmVolume",
             "focusBgColor",

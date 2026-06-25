@@ -8,6 +8,22 @@ export function getAudioContext(): AudioContext {
   return ctx;
 }
 
+// 起動時自動スタート（#21）対策。ユーザー操作前に始まったセッションでは AudioContext が
+// suspended のまま＝通知音/BGM が鳴らない（WebView の autoplay 制約）。最初の操作（クリック/キー）で
+// 一度だけ resume する保険を張る。完全に無操作のままの再生はブラウザ仕様上保証できない。
+let unlockArmed = false;
+export function unlockAudioOnUserGesture(): void {
+  if (unlockArmed) return;
+  unlockArmed = true;
+  const unlock = () => {
+    getAudioContext(); // 生成 + suspended なら resume
+    window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("keydown", unlock);
+  };
+  window.addEventListener("pointerdown", unlock);
+  window.addEventListener("keydown", unlock);
+}
+
 /** ゲインに渡す音量を 0..1 にクランプする。 */
 export const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 

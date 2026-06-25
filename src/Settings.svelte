@@ -1,9 +1,12 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
   import * as settings from "./lib/settings";
   import { hideWindow } from "./lib/window";
   import { playSound, type SoundId } from "./lib/sounds";
   import { setBgm, stopBgm, type BgmId } from "./lib/bgm";
+  import { ensureNotificationPermission } from "./lib/notify";
+  import { getStats, resetStats, onStatsChanged, type Stats } from "./lib/stats";
   import { checkForUpdate, openReleases } from "./lib/update";
 
   // 編集中のフォーム状態。時間は UI では分で扱う（保存時に秒へ変換）。
@@ -13,15 +16,21 @@
   let cyclesCount = $state(0);
   let corner = $state<settings.Corner>("topRight");
   let skipTaskbar = $state(true);
+  let autostartTimer = $state(false);
+  // OS スタートアップ登録は OS 側が真実。settings.json には持たず autostart プラグインで読み書きする。
+  let launchOnStartup = $state(false);
   let workEndSound = $state<SoundId>("chime");
   let breakEndSound = $state<SoundId>("ding");
   let sessionEndSound = $state<SoundId>("fanfare");
   let volume = $state(70);
+  let osNotifications = $state(true);
   let focusBgm = $state<BgmId>("none");
   let bgmVolume = $state(25);
   let bgmPreviewing = $state(false);
   let focusBgColor = $state(settings.DEFAULT_FOCUS_BG);
   let breakBgColor = $state(settings.DEFAULT_BREAK_BG);
+  // 完了数の統計（#22）。集計は Rust 権威で、ここは表示とリセットのみ。
+  let stats = $state<Stats>({ completedFocus: 0, completedSets: 0 });
 
   // ライブ反映（明示保存ではなく変更即適用）。「保存し忘れて閉じる」事故を構造的に無くす。
   // 数値入力の連打を避けるためデバウンスする。状態表示用に save の進行/エラーを持つ。
@@ -47,10 +56,12 @@
       cyclesCount: Math.max(0, Math.floor(num(cyclesCount, 0))),
       corner,
       skipTaskbar,
+      autostartTimer,
       workEndSound,
       breakEndSound,
       sessionEndSound,
       volume: Math.round(num(volume, 70)),
+      osNotifications,
       focusBgm,
       bgmVolume: Math.round(num(bgmVolume, 25)),
       focusBgColor,
@@ -67,16 +78,22 @@
       cyclesCount = s.cyclesCount;
       corner = s.corner;
       skipTaskbar = s.skipTaskbar;
+      autostartTimer = s.autostartTimer;
       workEndSound = s.workEndSound;
       breakEndSound = s.breakEndSound;
       sessionEndSound = s.sessionEndSound;
       volume = s.volume;
+      osNotifications = s.osNotifications;
       focusBgm = s.focusBgm;
       bgmVolume = s.bgmVolume;
       focusBgColor = s.focusBgColor;
       breakBgColor = s.breakBgColor;
       lastApplied = JSON.stringify(buildSettings());
       loaded = true;
+      // OS スタートアップ登録の現在状態は OS 側に問い合わせる（settings.json とは別管理）。
+      launchOnStartup = await isEnabled().catch(() => false);
+      // 完了数の統計を取得（#22）。失敗しても他の設定表示は止めない。
+      stats = await getStats().catch(() => stats);
     } catch (e) {
       errorMsg = `Failed to load settings: ${e}`;
       saveState = "error";
@@ -93,6 +110,21 @@
     } catch (e) {
       errorMsg = `Failed to save: ${e}`;
       saveState = "error";
+    }
+  }
+
+  // OS スタートアップ登録のトグル（#21）。これは settings.json ではなく OS 側へ即時反映するため、
+  // 上の自動保存フローには乗せず、ここで autostart プラグインを直接呼ぶ。失敗時は実状態へ戻す。
+  async function setLaunchOnStartup(on: boolean) {
+    try {
+      if (on) await enable();
+      else await disable();
+      launchOnStartup = on;
+      saveState = "saved";
+    } catch (e) {
+      errorMsg = `Failed to update startup: ${e}`;
+      saveState = "error";
+      launchOnStartup = await isEnabled().catch(() => launchOnStartup);
     }
   }
 
@@ -161,8 +193,26 @@
     if (focused) {
       updateState = "idle";
       updateText = UPDATE_HINT;
+      // 隠れている間に進んだ完了数を表示へ反映する（#22）。
+      getStats()
+        .then((s) => (stats = s))
+        .catch(() => {});
     }
   });
+
+  // 表示中に境界へ到達したらライブ更新する。設定ウィンドウは conf 定義の常駐窓で破棄されず
+  // （閉じる=hide）、本スクリプトは一度だけ実行される＝購読は 1 回・解除不要（上の onFocusChanged と同流儀）。
+  onStatsChanged((s) => (stats = s));
+
+  // 完了数のリセット（ユーザー操作）。Rust 側で 0 にして永続化し、stats-changed で戻ってくる。
+  async function resetStatsClick() {
+    try {
+      await resetStats();
+    } catch (e) {
+      errorMsg = `Failed to reset stats: ${e}`;
+      saveState = "error";
+    }
+  }
 
   // conf 定義済みウィンドウなので破棄せず隠す（再度開ける）。試聴中なら止める。
   async function close() {
@@ -221,8 +271,11 @@
     />
   </label>
 
-  <label class="row">
-    <span>Position</span>
+  <label
+    class="row"
+    title="Where the window first appears. Pick a corner to move it there now; afterwards your dragged position is remembered."
+  >
+    <span>Position (initial / reset)</span>
     <select bind:value={corner}>
       {#each settings.CORNER_OPTIONS as opt}
         <option value={opt.value}>{opt.label}</option>
@@ -235,6 +288,27 @@
     <input type="checkbox" bind:checked={skipTaskbar} />
   </label>
 
+  <label class="row checkbox">
+    <span>Auto-start timer on launch</span>
+    <input type="checkbox" bind:checked={autostartTimer} />
+  </label>
+
+  <label class="row checkbox">
+    <span>Launch on system startup</span>
+    <!-- これは settings.json でなく OS 側へ即時反映するため bind せず onchange で直接呼ぶ（setLaunchOnStartup 参照）。 -->
+    <input
+      type="checkbox"
+      checked={launchOnStartup}
+      onchange={(e) => setLaunchOnStartup(e.currentTarget.checked)}
+    />
+  </label>
+
+  <p class="hint">
+    Auto-started sounds may stay silent until you interact (enable notifications
+    below for hands-free alerts). “Launch on system startup” is saved by the OS,
+    not in settings.
+  </p>
+
   <label class="row">
     <span>Focus background</span>
     <input type="color" bind:value={focusBgColor} />
@@ -245,7 +319,10 @@
     <input type="color" bind:value={breakBgColor} />
   </label>
 
-  <p class="hint">Drag the window edge to resize. The size is remembered.</p>
+  <p class="hint">
+    Drag the window to move it, drag an edge to resize. Position and size are
+    remembered.
+  </p>
 
   <hr />
 
@@ -311,6 +388,16 @@
     />
   </label>
 
+  <label class="row checkbox">
+    <span>Notify when hidden (tray)</span>
+    <!-- ON にした瞬間（=可視・意図的な操作）に権限を要求する。隠れている最中には要求しない。 -->
+    <input
+      type="checkbox"
+      bind:checked={osNotifications}
+      onchange={(e) => e.currentTarget.checked && ensureNotificationPermission()}
+    />
+  </label>
+
   <hr />
 
   <label class="row">
@@ -341,6 +428,16 @@
       bind:value={bgmVolume}
     />
   </label>
+
+  <hr />
+
+  <div class="row">
+    <span>Completed (focus / sets)</span>
+    <span class="sound">
+      <span class="stat">{stats.completedFocus} / {stats.completedSets}</span>
+      <button class="preview" title="Reset stats" onclick={resetStatsClick}>Reset</button>
+    </span>
+  </div>
 
   <hr />
 
@@ -454,6 +551,10 @@
   .update {
     font-size: 0.78rem;
     opacity: 0.6;
+  }
+  .stat {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
   }
   .status.error,
   .update.error {

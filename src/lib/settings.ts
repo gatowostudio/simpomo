@@ -38,15 +38,19 @@ export interface AppSettings {
   cyclesInfinite: boolean;
   /** 0 = 1 セットで停止（既定）。cyclesInfinite が false のとき有効。 */
   cyclesCount: number;
-  /** 初期表示位置（どの隅に出すか）。サイズは端でリサイズし、plugin が永続化する。 */
+  /** 初期/リセット位置。隅を選ぶとそこへ移動し、以降ドラッグした位置/サイズは plugin が永続化する。 */
   corner: Corner;
   /** タスクバーに出さずトレイのみ常駐するか（既定 true）。 */
   skipTaskbar: boolean;
+  /** 起動時に自動でタイマーを開始するか（#21。既定 false）。 */
+  autostartTimer: boolean;
   workEndSound: SoundId;
   breakEndSound: SoundId;
   sessionEndSound: SoundId;
   /** 通知音の音量（0〜100）。 */
   volume: number;
+  /** トレイに隠している間、フェーズ境界を OS トースト通知でも知らせるか（#20。既定 true）。 */
+  osNotifications: boolean;
   /** フォーカス中に流す BGM（休憩中は止まる）。 */
   focusBgm: BgmId;
   /** BGM の音量（0〜100）。 */

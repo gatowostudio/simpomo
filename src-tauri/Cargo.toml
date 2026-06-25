@@ -1,6 +1,6 @@
 [package]
 name = "simpomo"
-version = "0.2.0"
+version = "0.2.1"
 description = "シンプルで軽量なポモドーロタイマー"
 authors = ["gatowostudio"]
 edition = "2021"

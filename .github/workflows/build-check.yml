@@ -62,6 +62,6 @@ jobs:
 
       # tagName を渡さないので tauri-action はビルドのみ行い、Release は作らない。
       - name: Build app (no release)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }}
